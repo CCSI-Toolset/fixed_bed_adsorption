@@ -1,10 +1,17 @@
 import matplotlib.pyplot as plt
-from pyomo.environ import *
-from pyomo.dae import *
+import pyomo.environ as pyo
 
 import numpy as np
 from scipy.interpolate import interp2d
 import pandas as pd
+
+### Reference list
+#[Hughes et al., 2011] Hughes, R., Kotamreddy, G., Ostace, A., Bhattacharyya, D., Siegelman, R. L., Parker, S. T., ... & Matuszewski, M. (2021).
+#Isotherm, Kinetic, Process Modeling, and Techno-Economic Analysis of a Diamine-Appended Metal–Organic Framework for CO2 Capture Using Fixed Bed Contactors. Energy & Fuels, 35(7), 6040-6055.
+
+#[Dowling et al., 2012] Dowling, A. W., Vetukuri, S. R., & Biegler, L. T. (2012). Large‐scale optimization strategies for pressure swing adsorption cycle synthesis. AIChE journal, 58(12), 3777-3791.
+
+#[Cavenati et al., 2006] Cavenati, S., Grande, C. A., & Rodrigues, A. E. (2006). Separation of CH4/CO2/N2 mixtures by layered pressure swing adsorption for upgrade of natural gas. Chemical engineering science, 61(12), 3893-3906.
 
 ### Process options
 
@@ -135,7 +142,7 @@ tden_low = P_low*100 / RPV / 313.15
 tden_high = P_high*100 / RPV / 313.15
 
 # Adsorption kinetics constants
-# Value from [Hughes et al., 2021]
+# Values from [Hughes et al., 2021]
 n_max = 3.82 # mol/kg
 nmax_p1 = 3.52 # mol/kg 
 Ka = -0.92 # dimensionless 
@@ -219,7 +226,7 @@ def create_model(scena, temp_feed=313.15, temp_bath=313.15, y=0.15, Q_init=0, do
                 diff: 0: no derivative estimate, 1: forward, -1: backward, 2: central
                 eps: step size for the finite difference perturbation
         energy: decide if energy balance is added to the model
-        isotherm: decide if isotherm part is opened. Must open if one of the chemsorb/physsorb is opened.
+        isotherm: decide if isotherm part is True. Must open if one of the chemsorb/physsorb is opened.
         chemsorb: decide if chemical adsorption part is opened to calculate adsorption kinetics
         physsorb: decide if physical adsorption part is opened to calculate adsorption kinetics
         dispersion: decide if dispersion part is included in gas molar balance calculation
@@ -373,16 +380,6 @@ def create_model(scena, temp_feed=313.15, temp_bath=313.15, y=0.15, Q_init=0, do
 
 
     
-def bounds_velocity(m, z, t):
-    ''' Add bounds to velocity [cm/s]
-    '''
-    if t == 0.0:
-        #return (1E-4, 0.3)  # bounds for 313K, 0.15 
-        return (1E-2, 30)  # bounds for DoE problem
-    else:
-        #return (0.8,1.4)  # bounds for 313K, 0.15 
-        return (0.01, 5.0)  # bounds for DoE problem
-    
 def bounds_velocity_pert(m, j, z, t):
     ''' Add bounds to velocity [cm/s]
     '''
@@ -406,24 +403,16 @@ def breakthrough_bounds(z,t):
     t50 = 1500 # 50% breakthrough time [s]
     t0_intercept = 0.4
 
+    # used only for testing breakthrough curve.
     # return (t0_intercept - 1)/t50*value(t) + t0_intercept > value(z)/Ngrid
+    # Inactivate this function for the model now
     return False
 
     
-def den_bounds(m,c,t,z):
-    '''[mol/m3]
-    '''
-    if breakthrough_bounds(z,t):
-        if c == 'N2':
-            return (0.9*tden_low, tden_high)
-        elif c == 'CO2':
-            return (small_bound, 0.1*tden_high)
-        else:
-            return (small_bound, tden_high)
-    else:
-        return (small_bound, tden_high)
-    
 def den_bounds_pert(m,j,c,t,z):
+    '''
+    density bounds, [mol/m3]
+    '''
     if breakthrough_bounds(z,t):
         if c == 'N2':
             return (0.9*tden_low, tden_high)
@@ -433,35 +422,19 @@ def den_bounds_pert(m,j,c,t,z):
             return (small_bound, tden_high)
     else:
         return (small_bound, tden_high)
-
-def surface_partial_pressure_bounds(m,c,z,t):
-    ''' [bar]
-    '''
-    
-    if breakthrough_bounds(z,t):
-        return (1E-5, 0.5)
-    else:
-        return (1E-8, P_high)
     
 def surface_partial_pressure_bounds_pert(m,j,c,z,t):
-    ''' [bar]
+    ''' Partial pressure bounds, [bar]
     '''
     if breakthrough_bounds(z,t):
         return (1E-5, 0.5)
     else:
         return (small_bound, P_high)
 
-def phys_star_bounds(m,c,z,t):
-    '''[mmol/g]'''
-    
-    if breakthrough_bounds(z,t):
-        return (small_bound, 0.1)
-    else:
-        #return (0.0, 0.8) # bounds for 313K, 0.15
-        return (small_bound, 10.0)
     
 def phys_star_bounds_pert(m,j,c,z,t):
-    '''[mmol/g]'''
+    ''' Pysical equilibrium pressure bounds, [mol/kg]
+    '''
     
     if breakthrough_bounds(z,t):
         return (small_bound, 0.1)
@@ -469,35 +442,20 @@ def phys_star_bounds_pert(m,j,c,z,t):
         #return (0.0, 0.8)  # bounds for 313K, 0.15
         return (small_bound, 10.0)
 
-def chem_star_bounds(m,c,z,t):
-    '''[mol/kg]'''
-    
-    if breakthrough_bounds(z,t):
-        return (small_bound, 0.3)
-    else:
-        #return (0.0, 2.6)  # bounds for 313K, 0.15
-        return (small_bound, 10.0)
     
 def chem_star_bounds_pert(m,j,c,z,t):
-    '''[mol/kg]'''
+    ''' Chemical equilibrium pressure bounds, [mol/kg][mol/kg]
+    '''
     
     if breakthrough_bounds(z,t):
         return (small_bound, 0.3)
     else:
         #return (0.0, 2.6)   # bounds for 313K, 0.15
-        return (small_bound, 10.0)
-
-def phys_loading_bounds(m,c,z,t):
-    '''[mol/kg]'''
-    
-    if breakthrough_bounds(z,t):
-        return (small_bound, 0.1)
-    else:
-        #return (0.0, 0.8)   # bounds for 313K, 0.15
         return (small_bound, 10.0)
 
 def phys_loading_bounds_pert(m,j,c,z,t):
-    '''[mol/kg]'''
+    ''' Pysical loading pressure bounds, [mol/kg]
+    '''
     
     if breakthrough_bounds(z,t):
         return (small_bound, 0.1)
@@ -506,17 +464,9 @@ def phys_loading_bounds_pert(m,j,c,z,t):
         return (small_bound, 10.0)
 
     
-def chem_loading_bounds(m,c,z,t):
-    '''[mol/kg]'''
-    
-    if breakthrough_bounds(z,t):
-        return (small_bound, 2.0)
-    else:
-        #return (0.0, 2.6)   # bounds for 313K, 0.15
-        return (small_bound, 10.0)
-    
 def chem_loading_bounds_pert(m,j,c,z,t):
-    '''[mol/kg]'''
+    ''' Pysical loading pressure bounds, [mol/kg]
+    '''
     
     if breakthrough_bounds(z,t):
         return (small_bound, 2.0)
@@ -525,7 +475,7 @@ def chem_loading_bounds_pert(m,j,c,z,t):
         return (small_bound, 10.0)
         
 def jac_bounds(m, t):
-    '''very wide bounds based on units 
+    ''' very wide bounds based on units. Used for MBDoE only, not a part of the fixed-bed model. 
     '''
     return (-1, 1)
 
@@ -1199,116 +1149,18 @@ def kinetics_para2_express(m,j,z,t):
 
 # add an expression to calculate the Jacobian elements 
 def FCO2_calc(m,j,z,t):
-    '''Calculate FCO2 in mmol/min
+    ''' Calculate FCO2, the outlet CO2 flowrate, [mmol/min]
+    This is the measurement of the fixed-bed experiments
     '''
+    # mol/m3 * cm/s * 0.01 m/cm * m2 * 60 s/min * 1000 mmol/mol = mmol/min
     return m.C[j,'CO2',z,t]*m.v[j,z,t]*3.1415926*rbed*rbed*600
-
-def jac_ele_exp(m,t):
-    '''Calculate Jaociban matrix elements
-    '''
-    p = []
-    for posi in m.zgrid:
-        p.append(posi)
-        
-    if m.diff ==1:
-        return (m.FCO2['forward_k',p[-1],t] - m.FCO2['base',p[-1],t])/m.eps/m.para
-    elif m.diff == -1:
-        return (m.FCO2['base',p[-1],t] - m.FCO2['backward_k',p[-1],t])/m.eps/m.para
-    elif m.diff == 2:
-        return (m.FCO2['forward_k',p[-1],t] - m.FCO2['backward_k',p[-1], t])/2/m.eps/m.para
-        
-def jac_ele(m,dv,t):
-    '''
-    Calculate the Jacobian elements 
-    Arguments:
-        dv: the design variables, k for k_trans, ua for UA
-        t: timepoints 
-    Return: 
-        jac['k',t] is the Jacobian of k_trans, jac['ua', t] is the Jacobian of UA
-    '''
-    p = []
-    for posi in m.zgrid:
-        p.append(posi)
-    
-    if m.diff ==1:
-        if dv=='k':
-            return (m.FCO2['forward_k', p[-1], t] - m.FCO2['base',p[-1],t])/m.eps/m.para
-        elif dv=='ua':
-            return (m.FCO2['forward_ua',p[-1],t] - m.FCO2['base',p[-1],t])/m.eps/m.ua_init
-    elif m.diff==-1:
-        if dv=='k':
-            return (m.FCO2['base',p[-1], t] - m.FCO2['backward_k',p[-1],t])/m.eps/m.para
-        elif dv=='ua':
-            return (m.FCO2['base',p[-1],t] - m.FCO2['backward_ua',p[-1],t])/m.eps/m.ua_init
-    elif m.diff==2:
-        if dv=='k':
-            return (m.FCO2['forward_k', p[-1],t] - m.FCO2['backward_k',p[-1],t])/m.eps/m.para/2
-        elif dv=='ua':
-            return (m.FCO2['forward_ua',p[-1],t] - m.FCO2['backward_ua',p[-1],t])/m.eps/m.ua_init/2
-
-def jac_Tend_ele(m,dv,t):
-    '''
-    Calculate the Jacobian elements 
-    Arguments:
-        dv: the design variables, k for k_trans, ua for UA
-        t: timepoints 
-    Return: 
-        jac['k',t] is the Jacobian of k_trans, jac['ua', t] is the Jacobian of UA
-    '''
-    p = []
-    for posi in m.zgrid:
-        p.append(posi)
-    
-    if m.diff ==1:
-        if dv=='k':
-            return (m.temp['forward_k', p[-1], t] - m.temp['base',p[-1],t])/m.eps/m.para
-        elif dv=='ua':
-            return (m.temp['forward_ua',p[-1],t] - m.temp['base',p[-1],t])/m.eps/m.ua_init
-    elif m.diff==-1:
-        if dv=='k':
-            return (m.temp['base',p[-1], t] - m.temp['backward_k',p[-1],t])/m.eps/m.para
-        elif dv=='ua':
-            return (m.temp['base',p[-1],t] - m.temp['backward_ua',p[-1],t])/m.eps/m.ua_init
-    elif m.diff==2:
-        if dv=='k':
-            return (m.temp['forward_k', p[-1],t] - m.temp['backward_k',p[-1],t])/m.eps/m.para/2
-        elif dv=='ua':
-            return (m.temp['forward_ua',p[-1],t] - m.temp['backward_ua',p[-1],t])/m.eps/m.ua_init/2
 
         
 def feed_rule(m):
-    '''The inlet mole fraction should add up to 1. Applied for continuous optimization problem 
+    '''The inlet mole fraction should add up to 1. Applied for MBDoE where the feed fraction is a design variable.
     '''
     return sum(m.yfeed[i] for i in m.COMPS) == 1
 
-    
-def ObjRule_opt_k(m):
-    '''objective function for the continuous DoE problem
-    '''
-    objfunc = -sum(m.jac['k', t]**2 for t in m.t)
-    return objfunc    
-
-def ObjRule_A(m):
-    '''
-    A-optimality objective function
-    '''
-    fim00 = sum(m.jac['k',t]**2 for t in m.t) + sum(m.jac_tend['k',t]**2 for t in m.t)
-    #fim01 = sum(m.jac['k',p[-1],t]*m.jac['ua',t] for t in m.t)
-    fim11 = sum(m.jac['ua',t]**2 for t in m.t) +sum(m.jac_tend['ua',t]**2 for t in m.t)
-    # use -trace for minimize, to maximize trace
-    trace = -fim00 - fim11
-    return trace
-     
-def ObjRule_D(m):
-    '''
-    D-optimality objective function
-    '''
-    fim00 = sum(m.jac['k',t]**2 for t in m.t)+ sum(m.jac_tend['k',t]**2 for t in m.t)
-    fim01 = sum(m.jac['k',t]*m.jac['ua',t] for t in m.t) + sum(m.jac_tend['k',t]*m.jac_tend['ua',t] for t in m.t)
-    fim11 = sum(m.jac['ua',t]**2 for t in m.t)+sum(m.jac_tend['ua',t]**2 for t in m.t)
-    # use -det for minimize, to maximize det
-    det = fim01**2 - fim00*fim11
-    return det
     
 def ObjRule_con(m):
     '''objective function for the square problem
@@ -1340,23 +1192,6 @@ def add_equations(mod):
     
     # measurements
     mod.FCO2 = Expression(mod.scena, mod.zgrid, mod.t, rule=FCO2_calc)
-    
-    
-    if mod.opt:
-        
-        mod.jac = Expression(mod.dv, mod.t, rule=jac_ele)
-
-        # add an expression to calculate the Jacobian elements
-        if mod.energy:
-            mod.jac_tend = Expression(mod.dv, mod.t, rule=jac_Tend_ele)
-            if mod.optimize_trace:
-                mod.Obj = Objective(rule=ObjRule_A, sense=minimize)
-            else:
-                mod.Obj = Objective(rule=ObjRule_D, sense=minimize)
-        else:
-            mod.Obj = Objective(rule=ObjRule_opt_k, sense=minimize)
-
-            mod.feed_law = Constraint(rule=feed_rule)
 
         
     if not mod.fix_pres:
@@ -1380,11 +1215,6 @@ def add_equations(mod):
     else:
         mod.alpha = Expression(mod.scena, mod.SCOMPS, mod.zgrid, mod.t, rule=alpha_calc)
 
-    #if mod.k_aug:
-    #    mod.inv_K_oc = Expression(mod.scena, mod.zgrid, mod.t, rule=kinetics_para_express)
-    #    mod.inv_K_op = Expression(mod.scena, mod.zgrid, mod.t, rule=kinetics_para2_express)
-
-    #if mod.k_aug:
     mod.Obj = Objective(rule=ObjRule_con, sense=minimize)
 
     mod.physical_adsorption = Constraint(mod.scena, mod.SCOMPS, mod.zgrid, mod.t, rule=phys_adsorb_nonlinear)
@@ -1393,17 +1223,6 @@ def add_equations(mod):
     mod.chemical_adsorption = Constraint(mod.scena, mod.SCOMPS, mod.zgrid, mod.t, rule=chem_adsorb)
             
 
-            
-def extract_fixed(m, measure_temp=False):
-    measurement=[]
-    for t in m.t:
-        measurement.append(value(m.FCO2['base', 19,t]))
-    if measure_temp:
-        for t in m.t:
-            measurement.append(value(m.temp['base', 10, t]))
-        for t in m.t:
-            measurement.append(value(m.temp['base', 19, t]))    
-    return measurement
             
 def fix_initial_bed(m, v_init=2.0):
     '''
@@ -1684,30 +1503,6 @@ def make_plots(m):
         plt.show()
 
 
-### Functions that are no longer used
-def init1D(dyn_var, t0_var,set1,T):
-    ''' 
-    Initialize dynamic Pyomo model with steady-state solution
-    
-    Args:
-        dyn_var: variable in dynamic model
-        t0_var: variable in single timestep model (often initial condition)
-        set1: set to enumerate over
-        T: time set for dyn_var
-        
-    Returns:
-        Nothing
-    
-    Assumptions:
-        dyn_var and t0_var have the same indicies
-        time is the last index
-        
-    '''
-    
-    for i in set1:
-        for t in T:
-            dyn_var[i,t] = value(t0_var[i,0])
-
 
 def custom_ipopt():
     ''' Return compiled version of Ipopt
@@ -1976,13 +1771,6 @@ def ext_pres_double(total, option1, option2, node):
         
     return x_pyomo1, x_pyomo2
 
-def average(lis):
-    '''
-    Get the average value of velocity/pressure etc. 
-    '''
-    li = np.asarray(lis)
-    res = li.reshape([69*20,])
-    return sum(res)/len(res)
 
 def time_points(n, time_range):
     '''
@@ -2004,7 +1792,7 @@ def time_points(n, time_range):
 
     return time_points
 
-def Residual(m):
+def residual(m):
     '''
     Calculate the residual with a given model
     return: 
@@ -2075,9 +1863,6 @@ def breakthrough_modify2(m, file=None, source="computer"):
     outlet_vel, _, _, _ = extract2d(m, m.v)
     
     outlet_n2, _, _, _ = extract3d(m, m.C, 'N2')
-    #print(outlet_den)
-    #print(outlet_n2)
-    #print(outlet_vel)
     
     model_temp, _,_,_ = extract2d(m,m.temp)
     
@@ -2086,53 +1871,31 @@ def breakthrough_modify2(m, file=None, source="computer"):
     for j in m.t:
         T.append(value(j))
         t_final = T[-1]
-        
-    #print(T)
-    #print(exp['time']*60)
-    #print(break_wvu['time']*60)
+
     
     if source == "lab":
-        break_wvu = pd.read_csv('breakthrough_wvu.csv')
+        #break_wvu = pd.read_csv('breakthrough_wvu.csv')
     
-        exp = pd.read_csv('co2_breakthrough.csv')
+        #exp = pd.read_csv('co2_breakthrough.csv')
         
-        data_c1 = exp['yCO2']
-        data_c = np.asarray(data_c1)
-        data_t1 = exp['time']  
-        data_t = np.asarray(data_t1*60+10)
-        new_data = np.interp(T, data_t, data_c)
-    
-    #print(break_wvu['FCO2'])
-    #print(exp['time'])
-    
-        plt.plot(exp['time']*60, exp['yCO2'],'b.', color='r', label='Experimental data')
-        #plt.plot(exp_nolin['time']*60, exp_nolin['yCO2'], label='WVU curve')
-        #plt.plot(break_wvu['time']*60, break_wvu['FCO2'], label='WVU curve')
+        #data_c1 = exp['yCO2']
+        #data_c = np.asarray(data_c1)
+        #data_t1 = exp['time']
+        #data_t = np.asarray(data_t1*60+10)
+        #new_data = np.interp(T, data_t, data_c)
+
+        #plt.plot(exp['time']*60, exp['yCO2'],'b.', color='r', label='Experimental data')
         plt.plot(T, outlet_den[-1,:]*outlet_vel[-1,:]/(outlet_den[-1, -1]*outlet_vel[-1,-1]), label='Model prediction')
-
-        # Use for 1200 - 1500 seconds:
-
-        #plt.plot(exp['time'][35:42]*60, exp['yCO2'][35:42],'b.', color='r')
-        #plt.plot(break_wvu['time'][1700:2000]*60, break_wvu['FCO2'][1700:2000], label='WVU curve')
-        #plt.plot(T[1:], outlet_den[-1,1:]*outlet_vel[-1,1:]/6.7, label='Pyomo curve')
-
-        #plt.plot(T, outlet_n2[-1,:]*outlet_vel[-1,:]/(outlet_n2[-1, -1]*outlet_vel[-1,-1]),label='N2')
         plt.xlabel('time [s]')
         plt.ylabel('Normalized outlet gas density of CO\N{SUBSCRIPT TWO} ')
         plt.title('Breakthrough curve')
-        #plt.savefig('break_tr%.fua%.f.png'%(tr,ua))
         plt.legend()
         plt.show()
         
     elif source == "computer": 
         
         sol = pd.read_csv(file)
-    
-        #for i in range(len(time_exp)):    
-        #    yco2_exp[time_exp[i]] = sol['FCO2'][i]
-        #    temp_mid_exp[time_exp[i]] = sol['temp_mid'][i]
-        #    temp_end_exp[time_exp[i]] = sol['temp_end'][i]
-        
+
         exp_fco2 = np.asarray(sol['FCO2'].values.tolist())
         exp_temp_mid = np.asarray(sol['temp_mid'].values.tolist())
         exp_temp_end = np.asarray(sol['temp_end'].values.tolist())
@@ -2142,7 +1905,6 @@ def breakthrough_modify2(m, file=None, source="computer"):
         plt.xlabel('time [s]')
         plt.ylabel('Normalized outlet gas density of CO\N{SUBSCRIPT TWO} ')
         plt.title('Breakthrough curve')
-        #plt.savefig('break_tr%.fua%.f.png'%(tr,ua))
         plt.legend()
         plt.show()
         
@@ -2154,7 +1916,6 @@ def breakthrough_modify2(m, file=None, source="computer"):
         plt.xlabel('time [s]')
         plt.ylabel('Temperature [K]')
         plt.title('Temperature model prediction and experimental data')
-        #plt.savefig('break_tr%.fua%.f.png'%(tr,ua))
         plt.legend()
         plt.show()
     
