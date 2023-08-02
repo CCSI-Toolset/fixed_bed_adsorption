@@ -1,0 +1,4 @@
+*.pyc
+*.txt
+__pycache__/
+Rotary packed bed/RPB_working_notebook.ipynb
