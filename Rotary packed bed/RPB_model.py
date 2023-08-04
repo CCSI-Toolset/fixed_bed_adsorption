@@ -103,11 +103,14 @@ def RPB_model(mode):
     )
 
     # ========================== Dimensions ========================================
-    m.D = Param(initialize=(10), units=units.m, doc="Bed diameter [m]")
+    m.D = Var(initialize=(10), units=units.m, doc="Bed diameter [m]")
+    m.D.fix()
 
-    m.L = Param(initialize=(3), units=units.m, doc="Bed Length [m]")
+    m.L = Var(initialize=(3), units=units.m, doc="Bed Length [m]")
+    m.L.fix()
 
-    m.theta = Param(initialize=(0.5), doc="Fraction of bed [-]")
+    m.theta = Var(initialize=(0.5), doc="Fraction of bed [-]")
+    m.theta.fix()
 
     m.w_rpm = Param(
         initialize=(0.095),
@@ -151,7 +154,12 @@ def RPB_model(mode):
         units=units.mol / units.s,
     )
 
-    m.P_in = Var(initialize=1.1, units=units.bar, doc="Inlet flue gas pressure [bar]")
+    m.P_in = Var(
+        initialize=1.1,
+        bounds=(1, 1.5),
+        units=units.bar,
+        doc="Inlet flue gas pressure [bar]",
+    )
 
     if mode == "adsorption":
         Tg_in = 90 + 273
@@ -336,11 +344,25 @@ def RPB_model(mode):
         units=units.K,
     )
 
-    m.dTgdz = DerivativeVar(
-        m.Tg,
-        wrt=m.z,
-        doc="axial derivative of gas phase temp. [K/dimensionless bed length]",
+    m.heat_flux = Var(
+        m.z,
+        m.o,
+        initialize=0,
+        units=units.kJ / units.m**2 / units.s,
+        doc="heat flux [kW/m^2 or kJ/s/m^2]",
     )
+
+    m.dheat_fluxdz = DerivativeVar(
+        m.heat_flux,
+        wrt=m.z,
+        doc="axial derivative of heat flux [kW/m^2/dimensionless bed length]",
+    )
+
+    # m.dTgdz = DerivativeVar(
+    #     m.Tg,
+    #     wrt=m.z,
+    #     doc="axial derivative of gas phase temp. [K/dimensionless bed length]",
+    # )
 
     m.vel = Var(
         m.z,
@@ -362,7 +384,10 @@ def RPB_model(mode):
     )
 
     m.dPdz = DerivativeVar(
-        m.P, wrt=m.z, doc="axial derivative of pressure [bar/dimensionless bed length]"
+        m.P,
+        wrt=m.z,
+        bounds=(None, 0),
+        doc="axial derivative of pressure [bar/dimensionless bed length]",
     )
 
     m.Flux_kzo = Var(
@@ -560,6 +585,13 @@ def RPB_model(mode):
     @m.Expression(m.z, m.o, doc="gas mixture thermal conductivity [kW/m/K]")
     def k_mix(m, z, o):
         return sum([m.y[k, z, o] * m.k[k] for k in m.component_list])
+
+    @m.Constraint(m.z, m.o, doc="heat flux equation [kJ/s/m^2]")
+    def heat_flux_eq(m, z, o):
+        return (
+            m.heat_flux[z, o]
+            == m.C_tot[z, o] * m.Cp_g_mix[z, o] * m.vel[z, o] * m.Tg[z, o]
+        )
 
     # Dimensionless groups ====
 
@@ -859,12 +891,9 @@ def RPB_model(mode):
     @m.Constraint(m.z, m.o, doc="gas phase energy balance PDE [kJ/m^3 bed/s]")
     def pde_gasEB(m, z, o):
         if 0 < z < 1:
-            return (
-                m.C_tot[z, o] * m.Cp_g_mix[z, o] * m.vel[z, o] * m.dTgdz[z, o] / m.L
-                == m.Q_gs[z, o] - m.Q_ghx[z, o]
-            )
+            return m.dheat_fluxdz[z, o] / m.L == m.Q_gs[z, o] - m.Q_ghx[z, o]
         elif z == 1:
-            return m.dTgdz[z, o] == 0
+            return m.dheat_fluxdz[z, o] == 0
         else:
             return Constraint.Skip
 
@@ -984,10 +1013,14 @@ def RPB_model(mode):
         return m.P[1, o] == m.P_out
 
     # Metrics ==============
+    m.CO2_capture = Var(initialize=0.5, doc="CO2 capture fraction")
 
-    @m.Expression(doc="CO2 capture fraction")
-    def CO2_capture(m):
-        return 1 - (m.F_out * m.y_out["CO2"]) / (m.F_in * m.y_in["CO2"])
+    @m.Constraint(doc="CO2 capture fraction")
+    def CO2_capture_eq(m):
+        # return 1 - (m.F_out * m.y_out["CO2"]) / (m.F_in * m.y_in["CO2"])
+        return m.CO2_capture * (m.F_in * m.y_in["CO2"]) == (m.F_in * m.y_in["CO2"]) - (
+            m.F_out * m.y_out["CO2"]
+        )
 
     # ==============
 
@@ -1102,14 +1135,16 @@ def RPB_model(mode):
             iscale.set_scaling_factor(m.flux_eq["H2O", z, o], 10)
             iscale.set_scaling_factor(m.C_tot_eq[z, o], 1e0)
             iscale.set_scaling_factor(m.Sc_eq[z, o], 1e6)
+            iscale.set_scaling_factor(m.heat_flux_eq[z, o], 1e-2)
 
             if z > 0:
-                iscale.set_scaling_factor(m.dTgdz_disc_eq[z, o], 1e-4)
+                # iscale.set_scaling_factor(m.dTgdz_disc_eq[z, o], 1e-4)
                 iscale.set_scaling_factor(m.dFluxdz_disc_eq["CO2", z, o], 0.5)
                 iscale.set_scaling_factor(m.dFluxdz_disc_eq["H2O", z, o], 0.5)
                 iscale.set_scaling_factor(m.dPdz[z, o], 100)
                 iscale.set_scaling_factor(m.dPdz_disc_eq[z, o], 0.5)
                 iscale.set_scaling_factor(m.pde_Ergun[z, o], 100)
+                iscale.set_scaling_factor(m.dheat_fluxdz_disc_eq[z, o], 1e-2)
 
             if o > 0:
                 iscale.set_scaling_factor(m.dTsdo_disc_eq[z, o], 1e-4)
@@ -1119,6 +1154,7 @@ def RPB_model(mode):
                 iscale.set_scaling_factor(m.pde_gasEB[z, o], 1e-4)
                 iscale.set_scaling_factor(m.pde_solidEB[z, o], 1e-4)
                 iscale.set_scaling_factor(m.pde_solidMB[z, o], 5e-2)
+                iscale.set_scaling_factor(m.dheat_fluxdz[z, o], 1e-2)
 
     for o in m.o:
         iscale.set_scaling_factor(m.bc_gastemp_in[o], 1e-2)
@@ -1145,7 +1181,7 @@ def RPB_model(mode):
 
                 if 0 < z < 1 and 0 < o < 1:
                     iscale.set_scaling_factor(m.dTsdo[z, o], 1e-4)
-                    iscale.set_scaling_factor(m.dTgdz[z, o], 1e-4)
+                    # iscale.set_scaling_factor(m.dTgdz[z, o], 1e-4)
                     iscale.set_scaling_factor(m.pde_gasMB["CO2", z, o], 5e-2)
 
     # setting desorption mode scaling factors
@@ -1177,7 +1213,7 @@ def RPB_model(mode):
 
                 if 0 < z < 1 and 0 < o < 1:
                     iscale.set_scaling_factor(m.dTsdo[z, o], 5e-2)
-                    iscale.set_scaling_factor(m.dTgdz[z, o], 1e-4)
+                    # iscale.set_scaling_factor(m.dTgdz[z, o], 1e-4)
                     iscale.set_scaling_factor(m.dTsdo[z, o], 1e-3)
                     iscale.set_scaling_factor(m.pde_gasMB["CO2", z, o], 1e-1)
                     iscale.set_scaling_factor(m.dFluxdz["CO2", z, o], 1e-2)
@@ -1200,6 +1236,9 @@ def RPB_model(mode):
                     iscale.set_scaling_factor(m.constr_MTcont[z, o], 1e3)
                     iscale.set_scaling_factor(m.Flux_kzo["CO2", z, o], 1e4)
                     iscale.set_scaling_factor(m.flux_eq["CO2", z, o], 1e3)
+
+                if 0 < z < 1:
+                    iscale.set_scaling_factor(m.Ts_in[z], 1e-2)
 
         for o in m.o:
             iscale.set_scaling_factor(m.bc_y_in["N2", o], 1e3)
@@ -1466,7 +1505,7 @@ def get_init_factors(blk):
         print(f"{key}: {v}")
 
 
-def evaluate_RPB_error(blk):
+def evaluate_MB_error(blk):
     for k in blk.component_list:
         # print error for each component formatted in scientific notation
         print(f"{k} error = {blk.MB_error[k]():.3} %")
