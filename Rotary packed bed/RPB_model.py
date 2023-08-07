@@ -33,7 +33,7 @@ from idaes.core.util import to_json, from_json, StoreSpec
 import idaes.core.util.scaling as iscale
 from idaes.core.util.model_diagnostics import DegeneracyHunter
 
-# import finitevolume
+import finitevolume
 from idaes.core.solvers.homotopy import homotopy
 from idaes.core.initialization.block_triangularization import (
     BlockTriangularizationInitializer,
@@ -46,12 +46,12 @@ def RPB_model(mode):
 
     z_bounds = (0, 1)
     # z_init_points = tuple(np.linspace(0.0,0.01,5))+tuple(np.linspace(0.99,1,5))
-    # z_init_points = tuple(np.linspace(0,0.1,5)) + (0.99,)
-    z_init_points = (0.01, 0.99)
+    z_init_points = tuple(np.linspace(0, 0.1, 5)) + (0.99,)
+    # z_init_points = (0.01, 0.99)
 
     o_bounds = (0, 1)
     # o_init_points = tuple(np.linspace(0.0,0.01,5))+tuple(np.linspace(0.99,1,5))
-    # o_init_points = tuple(np.linspace(0,0.1,5)) + (0.99,)
+    # o_init_points = tuple(np.linspace(0, 0.1, 5)) + (0.99,)
     o_init_points = (0.01, 0.99)
 
     m.z = ContinuousSet(
@@ -69,13 +69,13 @@ def RPB_model(mode):
     disc_method = "Collocation"
 
     if disc_method == "Collocation":
-        FiniteElem = 20
+        FiniteElem = 10
         FiniteElem_o = 5
         Collpoints_z = 2
         Collpoints_o = 2
     elif disc_method == "Finite Difference":
-        FiniteElem = 40
-        FiniteElem_o = 25
+        FiniteElem = 20
+        FiniteElem_o = 20
     elif disc_method == "Finite Volume":
         FiniteVol = 20
         FiniteVol_o = 10
@@ -634,12 +634,12 @@ def RPB_model(mode):
 
     @m.Expression(m.z, m.o, doc="Sherwood number")
     def Sh(m, z, o):
-        # return 2.0 + 0.6*m.Re[z,o]**0.33*m.Sc[z,o]**0.5
+        # return 2.0 + 0.6 * m.Re[z, o] ** 0.33 * m.Sc[z, o] ** 0.5
         return 2.0 + 0.6 * exp(0.33 * log(m.Re[z, o]) + 0.5 * log(m.Sc[z, o]))
 
     @m.Expression(m.z, m.o, doc="Nusselt number")
     def Nu(m, z, o):
-        # return 2.0 + 1.1*m.Re[z,o]**0.6*m.Pr[z,o]**0.33
+        # return 2.0 + 1.1 * m.Re[z, o] ** 0.6 * m.Pr[z, o] ** 0.33
         return 2.0 + 1.1 * exp(0.6 * log(m.Re[z, o]) + 0.33 * log(m.Pr[z, o]))
 
     # ===
