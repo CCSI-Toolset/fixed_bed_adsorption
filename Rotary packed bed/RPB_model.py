@@ -595,52 +595,52 @@ def RPB_model(mode):
 
     # Dimensionless groups ====
 
-    m.Pr = Var(
+    m.ln_Pr = Var(
         m.z,
         m.o,
-        initialize=1.0,
-        domain=PositiveReals,
-        bounds=(1e-10, None),
+        initialize=0,
+        # domain=PositiveReals,
+        bounds=(-25, 5),
         doc="Prandtl number",
     )
-    m.Re = Var(
+    m.ln_Re = Var(
         m.z,
         m.o,
-        initialize=1.0,
-        domain=PositiveReals,
-        bounds=(1e-10, None),
+        initialize=0,
+        # domain=PositiveReals,
+        bounds=(-5, 5),
         doc="Reynolds number",
     )
-    m.Sc = Var(
+    m.ln_Sc = Var(
         m.z,
         m.o,
-        initialize=1.0,
-        domain=PositiveReals,
-        bounds=(1e-10, None),
+        initialize=0,
+        # domain=PositiveReals,
+        bounds=(-5, 5),
         doc="Schmidt number",
     )
 
     @m.Constraint(m.z, m.o, doc="Prandtl number")
     def Pr_eq(m, z, o):
-        return m.Pr[z, o] * m.k_mix[z, o] == m.mu_mix[z, o] * m.Cp_g_mix_kg[z, o]
+        return (
+            exp(m.ln_Pr[z, o]) * m.k_mix[z, o] == m.mu_mix[z, o] * m.Cp_g_mix_kg[z, o]
+        )
 
     @m.Constraint(m.z, m.o, doc="Reynolds number")
     def Re_eq(m, z, o):
-        return m.Re[z, o] * m.mu_mix[z, o] == m.rhog[z, o] * m.vel[z, o] * m.dp
+        return exp(m.ln_Re[z, o]) * m.mu_mix[z, o] == m.rhog[z, o] * m.vel[z, o] * m.dp
 
     @m.Constraint(m.z, m.o, doc="Schmidt number")
     def Sc_eq(m, z, o):
-        return m.Sc[z, o] * m.rhog[z, o] * m.DmCO2 == m.mu_mix[z, o]
+        return exp(m.ln_Sc[z, o]) * m.rhog[z, o] * m.DmCO2 == m.mu_mix[z, o]
 
     @m.Expression(m.z, m.o, doc="Sherwood number")
     def Sh(m, z, o):
-        # return 2.0 + 0.6 * m.Re[z, o] ** 0.33 * m.Sc[z, o] ** 0.5
-        return 2.0 + 0.6 * exp(0.33 * log(m.Re[z, o]) + 0.5 * log(m.Sc[z, o]))
+        return 2.0 + 0.6 * exp(0.33 * m.ln_Re[z, o] + 0.5 * m.ln_Sc[z, o])
 
     @m.Expression(m.z, m.o, doc="Nusselt number")
     def Nu(m, z, o):
-        # return 2.0 + 1.1 * m.Re[z, o] ** 0.6 * m.Pr[z, o] ** 0.33
-        return 2.0 + 1.1 * exp(0.6 * log(m.Re[z, o]) + 0.33 * log(m.Pr[z, o]))
+        return 2.0 + 1.1 * exp(0.6 * m.ln_Re[z, o] + 0.33 * m.ln_Pr[z, o])
 
     # ===
 
@@ -678,8 +678,8 @@ def RPB_model(mode):
 
     P_step_01 = 1.85e-03
     P_step_02 = 1.78e-02
-    ln_P0_1 = log(P_step_01)
-    ln_P0_2 = log(P_step_02)
+    ln_P0_1 = -6.2925
+    ln_P0_2 = -4.0285
 
     H_step_1 = -99.64
     H_step_2 = -78.19
@@ -791,9 +791,10 @@ def RPB_model(mode):
 
     # ========
 
-    @m.Expression(m.z, m.o, doc="axial dispersion coefficient [?]")
-    def Dz(m, z, o):
-        return m.DmCO2 / m.eb * (20 + 0.5 * m.Sc[z, o] * m.Re[z, o])
+    # axial dispersion coefficient not needed at this time
+    # @m.Expression(m.z, m.o, doc="axial dispersion coefficient [?]")
+    # def Dz(m, z, o):
+    #     return m.DmCO2 / m.eb * (20 + 0.5 * m.Sc[z, o] * m.Re[z, o])
 
     # heat of adsorption ===
 
@@ -830,8 +831,8 @@ def RPB_model(mode):
     @m.Expression(m.z, m.o, doc="gas mass transfer rate [mol/s/m^3 bed]")
     def Rg_CO2(m, z, o):
         if 0 < z < 1 and 0 < o < 1:  # no mass transfer at boundaries
-            # return m.k_f[z,o]*m.a_s*(m.C['CO2',z,o]-m.Cs_r[z,o]) #option 1
-            return m.Rs_CO2[z, o]  # option 2
+            return m.k_f[z, o] * m.a_s * (m.C["CO2", z, o] - m.Cs_r[z, o])  # option 1
+            # return m.Rs_CO2[z, o]  # option 2
         else:
             return 0
 
@@ -925,9 +926,13 @@ def RPB_model(mode):
         """
         # return m.Rg_CO2[z,o] == m.Rs_CO2[z,o] #option 1
         # return m.Rg_CO2[z,o] == m.k_f[z,o]*m.a_s*(m.C['CO2',z,o]-m.Cs_r[z,o]) #option 2a
-        return (
-            m.Cs_r[z, o] == m.C["CO2", z, o] - m.Rg_CO2[z, o] / m.k_f[z, o] / m.a_s
-        )  # option 2b
+        # return (
+        #     m.Cs_r[z, o] == m.C["CO2", z, o] - m.Rg_CO2[z, o] / m.k_f[z, o] / m.a_s
+        # )  # option 2b
+        if 0 < z < 1 and 0 < o < 1:
+            return m.Rg_CO2[z, o] == m.Rs_CO2[z, o]
+        else:
+            return m.Cs_r[z, o] == m.C["CO2", z, o]
 
     @m.Constraint(m.z, m.o, doc="Ergun Equation [bar/m]")
     def pde_Ergun(m, z, o):
@@ -1105,6 +1110,7 @@ def RPB_model(mode):
                 m.C[k, z, o] = value(m.C_in[k])
                 m.y[k, z, o] = value(m.C[k, z, o] / m.C_tot[z, o])
                 m.Flux_kzo[k, z, o] = value(m.C[k, z, o] * m.vel[z, o])
+                # m.qCO2_eq[z, o] = value(m.qCO2_eq_expr[z, o])
 
     # scaling factors ================================
     # setting universal scaling factors
@@ -1126,9 +1132,9 @@ def RPB_model(mode):
             iscale.set_scaling_factor(m.Tg[z, o], 1e-2)
             iscale.set_scaling_factor(m.Ts[z, o], 1e-2)
             iscale.set_scaling_factor(m.P[z, o], 10)
-            iscale.set_scaling_factor(m.Pr[z, o], 1e4)
-            iscale.set_scaling_factor(m.Sc[z, o], 10)
-            iscale.set_scaling_factor(m.Pr_eq[z, o], 1e9)
+            # iscale.set_scaling_factor(m.Pr[z, o], 1e4)
+            # iscale.set_scaling_factor(m.Sc[z, o], 10)
+            iscale.set_scaling_factor(m.Pr_eq[z, o], 1e8)
             iscale.set_scaling_factor(m.Re_eq[z, o], 1e4)
             iscale.set_scaling_factor(m.y_eq["H2O", z, o], 1)
             iscale.set_scaling_factor(m.flux_eq["CO2", z, o], 10)
@@ -1182,7 +1188,7 @@ def RPB_model(mode):
                 if 0 < z < 1 and 0 < o < 1:
                     iscale.set_scaling_factor(m.dTsdo[z, o], 1e-4)
                     # iscale.set_scaling_factor(m.dTgdz[z, o], 1e-4)
-                    iscale.set_scaling_factor(m.pde_gasMB["CO2", z, o], 5e-2)
+                    iscale.set_scaling_factor(m.pde_gasMB["CO2", z, o], 1e-2)
 
     # setting desorption mode scaling factors
     if mode == "desorption":
@@ -1202,7 +1208,7 @@ def RPB_model(mode):
                 iscale.set_scaling_factor(m.y_eq["N2", z, o], 1e4)
                 iscale.set_scaling_factor(m.Flux_kzo["N2", z, o], 1e4)
                 iscale.set_scaling_factor(m.flux_eq["N2", z, o], 1e3)
-                iscale.set_scaling_factor(m.constr_MTcont[z, o], 1e2)
+                iscale.set_scaling_factor(m.constr_MTcont[z, o], 1e0)
 
                 if z > 0:
                     iscale.set_scaling_factor(m.dFluxdz_disc_eq["H2O", z, o], 1e-2)
