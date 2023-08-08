@@ -69,7 +69,7 @@ def RPB_model(mode):
     disc_method = "Collocation"
 
     if disc_method == "Collocation":
-        FiniteElem = 10
+        FiniteElem = 20
         FiniteElem_o = 5
         Collpoints_z = 2
         Collpoints_o = 2
@@ -311,7 +311,7 @@ def RPB_model(mode):
         m.z,
         m.o,
         initialize=1,
-        bounds=(1e-5, 100),
+        bounds=(1e-8, 100),
         doc="Gas phase Conc. [mol/m^3]",
         units=units.mol / units.m**3,
     )
@@ -831,8 +831,8 @@ def RPB_model(mode):
     @m.Expression(m.z, m.o, doc="gas mass transfer rate [mol/s/m^3 bed]")
     def Rg_CO2(m, z, o):
         if 0 < z < 1 and 0 < o < 1:  # no mass transfer at boundaries
-            return m.k_f[z, o] * m.a_s * (m.C["CO2", z, o] - m.Cs_r[z, o])  # option 1
-            # return m.Rs_CO2[z, o]  # option 2
+            # return m.k_f[z, o] * m.a_s * (m.C["CO2", z, o] - m.Cs_r[z, o])  # option 1
+            return m.Rs_CO2[z, o]  # option 2
         else:
             return 0
 
@@ -924,15 +924,13 @@ def RPB_model(mode):
             2) m.C['CO2',z,o] == m.Rg_CO2[z,o]/m.k_f[z,o]/m.a_s + m.Cs_r[z,o]
 
         """
-        # return m.Rg_CO2[z,o] == m.Rs_CO2[z,o] #option 1
-        # return m.Rg_CO2[z,o] == m.k_f[z,o]*m.a_s*(m.C['CO2',z,o]-m.Cs_r[z,o]) #option 2a
-        # return (
-        #     m.Cs_r[z, o] == m.C["CO2", z, o] - m.Rg_CO2[z, o] / m.k_f[z, o] / m.a_s
-        # )  # option 2b
-        if 0 < z < 1 and 0 < o < 1:
-            return m.Rg_CO2[z, o] == m.Rs_CO2[z, o]
-        else:
-            return m.Cs_r[z, o] == m.C["CO2", z, o]
+        return (
+            m.Cs_r[z, o] == m.C["CO2", z, o] - m.Rg_CO2[z, o] / m.k_f[z, o] / m.a_s
+        )  # option 2b
+        # if 0 < z < 1 and 0 < o < 1:
+        #     return m.Rg_CO2[z, o] == m.Rs_CO2[z, o]
+        # else:
+        #     return m.Cs_r[z, o] == m.C["CO2", z, o]
 
     @m.Constraint(m.z, m.o, doc="Ergun Equation [bar/m]")
     def pde_Ergun(m, z, o):
