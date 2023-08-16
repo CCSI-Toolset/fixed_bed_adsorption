@@ -1131,17 +1131,16 @@ def RPB_model(mode):
                 m.Flux_kzo[k, z, o] = value(m.C[k, z, o] * m.vel[z, o])
 
     # scaling factors ================================
-    # setting universal scaling factors
-    iscale.set_scaling_factor(m.y_out["CO2"], 100)
     iscale.set_scaling_factor(m.bc_P_in, 10)
     iscale.set_scaling_factor(m.bc_y_out["CO2"], 100)
-    iscale.set_scaling_factor(m.bc_y_out["H2O"], 10)
-    iscale.set_scaling_factor(m.bc_y_out["N2"], 10)
+    iscale.set_scaling_factor(m.bc_y_out["H2O"], 1 / value(m.y_in["H2O"]))
+    iscale.set_scaling_factor(m.bc_y_out["N2"], 1 / value(m.y_in["N2"]))
     iscale.set_scaling_factor(m.bc_P_out, 10)
     iscale.set_scaling_factor(m.Tg_out_eq, 1e-3)
     iscale.set_scaling_factor(m.Tg_out, 1e-2)
-    iscale.set_scaling_factor(m.y_out["H2O"], 10 / value(m.y_in["H2O"]))
-    iscale.set_scaling_factor(m.y_out["N2"], 10 / value(m.y_in["N2"]))
+    iscale.set_scaling_factor(m.y_out["H2O"], 1 / value(m.y_in["H2O"]))
+    iscale.set_scaling_factor(m.y_out["N2"], 1 / value(m.y_in["N2"]))
+    iscale.set_scaling_factor(m.y_out["CO2"], 100)
 
     for z in m.z:
         iscale.set_scaling_factor(m.bc_solidtemp_in[z], 1e-2)
@@ -1154,28 +1153,22 @@ def RPB_model(mode):
             iscale.set_scaling_factor(m.P[z, o], 10)
             iscale.set_scaling_factor(m.Pr_eq[z, o], 1e8)
             iscale.set_scaling_factor(m.Re_eq[z, o], 1e4)
-            iscale.set_scaling_factor(m.y_eq["H2O", z, o], 1)
             iscale.set_scaling_factor(m.flux_eq["CO2", z, o], 10)
             iscale.set_scaling_factor(m.flux_eq["H2O", z, o], 10)
-            iscale.set_scaling_factor(m.Sc_eq[z, o], 1e6)
+            iscale.set_scaling_factor(m.Sc_eq[z, o], 1e5)
             iscale.set_scaling_factor(m.heat_flux_eq[z, o], 1e-2)
             iscale.set_scaling_factor(m.y["H2O", z, o], 1 / value(m.y_in["H2O"]))
-            iscale.set_scaling_factor(m.y["N2", z, o], 1e-2 / value(m.y_in["N2"]))
-            # iscale.set_scaling_factor(m.y["CO2", z, o], 1e-2 / value(m.y_in["CO2"]))
+            iscale.set_scaling_factor(m.y["N2", z, o], 1 / value(m.y_in["N2"]))
+            iscale.set_scaling_factor(m.C_tot_eq[z, o], 10)
 
             if z > 0:
                 iscale.set_scaling_factor(m.dFluxdz_disc_eq["CO2", z, o], 0.5)
                 iscale.set_scaling_factor(m.dFluxdz_disc_eq["H2O", z, o], 0.5)
-                iscale.set_scaling_factor(
-                    m.dFluxdz_disc_eq["N2", z, o], value(y_in["N2"])
-                )
+                iscale.set_scaling_factor(m.dFluxdz_disc_eq["N2", z, o], 0.1)
                 iscale.set_scaling_factor(m.dPdz[z, o], 100)
                 iscale.set_scaling_factor(m.dPdz_disc_eq[z, o], 0.5)
                 iscale.set_scaling_factor(m.pde_Ergun[z, o], 100)
                 iscale.set_scaling_factor(m.dheat_fluxdz_disc_eq[z, o], 1e-2)
-                iscale.set_scaling_factor(
-                    m.dFluxdz_disc_eq["N2", z, o], 100 * value(m.y_in["N2"])
-                )
 
             if o > 0:
                 iscale.set_scaling_factor(m.dTsdo_disc_eq[z, o], 1e-4)
@@ -1184,10 +1177,10 @@ def RPB_model(mode):
             if 0 < z < 1 and 0 < o < 1:
                 iscale.set_scaling_factor(m.pde_gasEB[z, o], 1e-4)
                 iscale.set_scaling_factor(m.pde_solidEB[z, o], 1e-4)
-                iscale.set_scaling_factor(m.pde_solidMB[z, o], 5e-2)
+                iscale.set_scaling_factor(m.pde_solidMB[z, o], 1e-1)
                 iscale.set_scaling_factor(m.dheat_fluxdz[z, o], 1e-2)
                 iscale.set_scaling_factor(m.dTsdo[z, o], 1e-3)
-                iscale.set_scaling_factor(m.pde_gasMB["CO2", z, o], 1e-2)
+                iscale.set_scaling_factor(m.pde_gasMB["CO2", z, o], 0.1)
 
             if z == 0:
                 iscale.set_scaling_factor(m.y["CO2", z, o], 1 / value(m.y_in["CO2"]))
@@ -1196,75 +1189,7 @@ def RPB_model(mode):
         iscale.set_scaling_factor(m.bc_gastemp_in[o], 1e-2)
         iscale.set_scaling_factor(m.bc_y_in["CO2", o], 1 / value(y_in["CO2"]))
         iscale.set_scaling_factor(m.bc_y_in["H2O", o], 1 / value(y_in["H2O"]))
-        iscale.set_scaling_factor(m.bc_y_in["N2", o], 1e-2 / value(y_in["N2"]))
-
-    # setting adsorption mode scaling factors
-    # if mode == "adsorption":
-    #     for z in m.z:
-    #         for o in m.o:
-    #             if 0 < z < 1 and 0 < o < 1:
-    # iscale.set_scaling_factor(m.dTsdo[z, o], 1e-4)
-    # iscale.set_scaling_factor(m.dTgdz[z, o], 1e-4)
-    # iscale.set_scaling_factor(m.pde_gasMB["CO2", z, o], 1e-2)
-
-    # setting desorption mode scaling factors
-    # if mode == "desorption":
-    #     iscale.set_scaling_factor(m.y_out["H2O"], 10)
-    #     iscale.set_scaling_factor(m.y_out["N2"], 1e5)
-    #     iscale.set_scaling_factor(m.bc_y_out["N2"], 1e5)
-    #     for z in m.z:
-    #         for o in m.o:
-    #             iscale.set_scaling_factor(m.Flux_kzo["CO2", z, o], 1)
-    #             # iscale.set_scaling_factor(m.Cs_r[z, o], 100)
-    #             iscale.set_scaling_factor(m.y["CO2", z, o], 1000)
-    #             iscale.set_scaling_factor(m.C["CO2", z, o], 100)
-    #             iscale.set_scaling_factor(m.y["H2O", z, o], 10)
-    #             iscale.set_scaling_factor(m.y["N2", z, o], 1e4)
-    #             iscale.set_scaling_factor(m.Flux_kzo["N2", z, o], 1e5)
-    #             iscale.set_scaling_factor(m.C["N2", z, o], 1e4)
-    #             iscale.set_scaling_factor(m.y_eq["N2", z, o], 1e4)
-    #             iscale.set_scaling_factor(m.Flux_kzo["N2", z, o], 1e4)
-    #             iscale.set_scaling_factor(m.flux_eq["N2", z, o], 1e3)
-    #             # iscale.set_scaling_factor(m.constr_MTcont[z, o], 1e0)
-
-    #             if z > 0:
-    #                 iscale.set_scaling_factor(m.dFluxdz_disc_eq["H2O", z, o], 1e-2)
-
-    #             if z > 0 and 0 < o < 1:
-    #                 iscale.set_scaling_factor(m.dFluxdz_disc_eq["CO2", z, o], 1e-2)
-    #                 iscale.set_scaling_factor(m.y_eq["CO2", z, o], 1e2)
-
-    #             if 0 < z < 1 and 0 < o < 1:
-    #                 iscale.set_scaling_factor(m.dTsdo[z, o], 0.1)
-    #                 # iscale.set_scaling_factor(m.dTgdz[z, o], 1e-4)
-    #                 iscale.set_scaling_factor(m.pde_gasMB["CO2", z, o], 1e-1)
-    #                 iscale.set_scaling_factor(m.dFluxdz["CO2", z, o], 1e-2)
-
-    #             if z == 0 or o == 0 or o == 1:
-    #                 iscale.set_scaling_factor(m.y_eq["CO2", z, o], 1e4)
-
-    #             if o == 0 or o == 1:
-    #                 iscale.set_scaling_factor(m.C["CO2", z, o], 1e4)
-    #                 iscale.set_scaling_factor(m.y["CO2", z, o], 1e5)
-    #                 # iscale.set_scaling_factor(m.Cs_r[z, o], 1e4)
-    #                 # iscale.set_scaling_factor(m.constr_MTcont[z, o], 1e3)
-    #                 iscale.set_scaling_factor(m.Flux_kzo["CO2", z, o], 1e4)
-    #                 iscale.set_scaling_factor(m.flux_eq["CO2", z, o], 1e3)
-
-    #             if z == 0:
-    #                 iscale.set_scaling_factor(m.y["CO2", z, o], 1e5)
-    #                 iscale.set_scaling_factor(m.C["CO2", z, o], 1e4)
-    #                 # iscale.set_scaling_factor(m.Cs_r[z, o], 1e4)
-    #                 # iscale.set_scaling_factor(m.constr_MTcont[z, o], 1e3)
-    #                 iscale.set_scaling_factor(m.Flux_kzo["CO2", z, o], 1e4)
-    #                 iscale.set_scaling_factor(m.flux_eq["CO2", z, o], 1e3)
-
-    #             if 0 < z < 1:
-    #                 iscale.set_scaling_factor(m.Ts_in[z], 1e-2)
-
-    #     for o in m.o:
-    #         iscale.set_scaling_factor(m.bc_y_in["N2", o], 1e3)
-    #         iscale.set_scaling_factor(m.bc_y_in["CO2", o], 1e5)
+        iscale.set_scaling_factor(m.bc_y_in["N2", o], 1 / value(y_in["N2"]))
 
     # =================================================
 
@@ -1710,12 +1635,14 @@ def check_scaling(blk):
 
     # print("Extreme Jacobian Columns:")
     with open("extreme_jacobian_columns.txt", "w") as f:
-        for i in iscale.extreme_jacobian_columns(jac=jac, nlp=nlp, small=1, large=1e3):
+        for i in iscale.extreme_jacobian_columns(
+            jac=jac, nlp=nlp, small=0.1, large=1e3
+        ):
             print(f"    {i[0]:.2e}, [{i[1]}]", file=f)
 
     # print("Extreme Jacobian Rows:")
     with open("extreme_jacobian_rows.txt", "w") as f:
-        for i in iscale.extreme_jacobian_rows(jac=jac, nlp=nlp, small=1, large=1e3):
+        for i in iscale.extreme_jacobian_rows(jac=jac, nlp=nlp, small=0.1, large=1e3):
             print(f"    {i[0]:.2e}, [{i[1]}]", file=f)
 
     with open("badly_scaled_vars.txt", "w") as f:
