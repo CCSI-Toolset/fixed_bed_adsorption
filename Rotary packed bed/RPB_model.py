@@ -330,7 +330,7 @@ def RPB_model(mode):
         m.component_list,
         m.z,
         m.o,
-        bounds=(1e-10, 1),  # don't need upper bound due to sum(y)=1
+        bounds=(1e-10, 1),
         initialize=0.1,
         doc="gas phase mole fraction",
     )
