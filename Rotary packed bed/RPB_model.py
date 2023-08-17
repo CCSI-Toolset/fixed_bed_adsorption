@@ -359,12 +359,6 @@ def RPB_model(mode):
         doc="axial derivative of heat flux [kW/m^2/dimensionless bed length]",
     )
 
-    # m.dTgdz = DerivativeVar(
-    #     m.Tg,
-    #     wrt=m.z,
-    #     doc="axial derivative of gas phase temp. [K/dimensionless bed length]",
-    # )
-
     m.vel = Var(
         m.z,
         m.o,
@@ -435,16 +429,6 @@ def RPB_model(mode):
         wrt=m.o,
         doc="theta derivative of solid phase temp. [K/dimensionless bed fraction]",
     )
-
-    # m.Cs_r = Var(
-    #     m.z,
-    #     m.o,
-    #     initialize=value(m.C_in["CO2"]) * 0.8,
-    #     # domain=NonNegativeReals,
-    #     bounds=(1e-8, 100),
-    #     units=units.mol / units.m**3,
-    #     doc="particle surface concentration of CO2 [mol/m^3]",
-    # )
 
     # Initialization factors ===
     m.R_MT_gas = Var(
@@ -646,25 +630,11 @@ def RPB_model(mode):
     # ===
 
     # Mass/Heat Transfer variables
-
-    # m.h_gs = Var(
-    #     m.z,
-    #     m.o,
-    #     initialize=0.111,
-    #     bounds=(0.005, 0.5),
-    #     doc="Gas-solid heat transfer coefficient [kW/m^2/K]",
-    # )
-
     @m.Expression(
         m.z, m.o, doc="Gas-solid heat transfer coefficient  equation [kW/m^2/K]"
     )
     def h_gs(m, z, o):
-        # return m.h_gs[z, o] == m.Nu[z, o] * m.k_mix[z, o] / m.dp
         return m.Nu[z, o] * m.k_mix[z, o] / m.dp
-
-    # @m.Expression(m.z, m.o, doc="Gas phase film mass transfer coefficient [m/s]")
-    # def k_f(m, z, o):
-    #     return m.Sh[z, o] * m.DmCO2 / m.dp
 
     # ===
 
@@ -689,10 +659,10 @@ def RPB_model(mode):
     X_12 = 7.74e-02
     X_22 = 1.66
 
-    P_step_01 = 1.85e-03
-    P_step_02 = 1.78e-02
-    ln_P0_1 = -6.2925
-    ln_P0_2 = -4.0285
+    # P_step_01 = 1.85e-03
+    # P_step_02 = 1.78e-02
+    ln_P0_1 = -6.2925  # ln(P_step_01)
+    ln_P0_2 = -4.0285  # ln(P_step_02)
 
     H_step_1 = -99.64
     H_step_2 = -78.19
@@ -744,7 +714,6 @@ def RPB_model(mode):
         doc="Partial pressure of CO2 at particle surface [bar] (ideal gas law)",
     )
     def P_surf(m, z, o):
-        # return m.Cs_r[z, o] * m.Rg * m.Ts[z, o]
         return m.P[z, o] * m.y["CO2", z, o]
 
     @m.Expression(m.z, m.o, doc="log(Psurf)")
@@ -811,12 +780,6 @@ def RPB_model(mode):
             )
 
     # ========
-
-    # axial dispersion coefficient not needed at this time
-    # @m.Expression(m.z, m.o, doc="axial dispersion coefficient [?]")
-    # def Dz(m, z, o):
-    #     return m.DmCO2 / m.eb * (20 + 0.5 * m.Sc[z, o] * m.Re[z, o])
-
     # heat of adsorption ===
 
     delH_a1 = 21.68
@@ -852,7 +815,6 @@ def RPB_model(mode):
     @m.Expression(m.z, m.o, doc="gas mass transfer rate [mol/s/m^3 bed]")
     def Rg_CO2(m, z, o):
         if 0 < z < 1 and 0 < o < 1:  # no mass transfer at boundaries
-            # return m.k_f[z, o] * m.a_s * (m.C["CO2", z, o] - m.Cs_r[z, o])  # option 1
             return m.Rs_CO2[z, o]  # option 2
         else:
             return 0
@@ -929,29 +891,6 @@ def RPB_model(mode):
             return m.dTsdo[z, o] == 0
         else:
             return Constraint.Skip
-
-    # @m.Constraint(m.z, m.o, doc="gas and solid phase mass transfer continuity")
-    # def constr_MTcont(m, z, o):
-    #     """
-    #     Mass transfer continuity between the gas and solid phase. Used to calculate
-    #     Csurf which sets driving force for gas phase mass transfer. A couple options
-    #     for how to write this.
-
-    #     If m.Rg_CO2 = m.kf*m.a_s*(m.C['CO2']-m.Cs_r) set as expression, then:
-    #         m.Rg_CO2[z,o] == m.Rs_CO2[z,o]
-
-    #     If m.Rg_CO2 = m.Rs_CO2 set as expression, then a couple options:
-    #         1) m.Rg_CO2[z,o] == m.k_f[z,o]*m.a_s*(m.C['CO2',z,o]-m.Cs_r[z,o])
-    #         2) m.C['CO2',z,o] == m.Rg_CO2[z,o]/m.k_f[z,o]/m.a_s + m.Cs_r[z,o]
-
-    #     """
-    #     return (
-    #         m.Cs_r[z, o] == m.C["CO2", z, o] - m.Rg_CO2[z, o] / m.k_f[z, o] / m.a_s
-    #     )  # option 2b
-    #     # if 0 < z < 1 and 0 < o < 1:
-    #     #     return m.Rg_CO2[z, o] == m.Rs_CO2[z, o]
-    #     # else:
-    #     #     return m.Cs_r[z, o] == m.C["CO2", z, o]
 
     @m.Constraint(m.z, m.o, doc="Ergun Equation [bar/m]")
     def pde_Ergun(m, z, o):
