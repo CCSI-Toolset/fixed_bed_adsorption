@@ -1162,8 +1162,8 @@ def RPB_model(mode):
             iscale.set_scaling_factor(m.C_tot_eq[z, o], 10)
 
             if z > 0:
-                iscale.set_scaling_factor(m.dFluxdz_disc_eq["CO2", z, o], 0.5)
-                iscale.set_scaling_factor(m.dFluxdz_disc_eq["H2O", z, o], 0.5)
+                iscale.set_scaling_factor(m.dFluxdz_disc_eq["CO2", z, o], 0.1)
+                iscale.set_scaling_factor(m.dFluxdz_disc_eq["H2O", z, o], 0.1)
                 iscale.set_scaling_factor(m.dFluxdz_disc_eq["N2", z, o], 0.1)
                 iscale.set_scaling_factor(m.dPdz[z, o], 100)
                 iscale.set_scaling_factor(m.dPdz_disc_eq[z, o], 0.5)
