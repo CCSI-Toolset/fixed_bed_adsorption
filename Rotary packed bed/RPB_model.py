@@ -261,7 +261,7 @@ def RPB_model(mode):
     m.hgx = Param(
         initialize=(25 * 1e-3),  # assumed value
         units=units.kW / units.m**2 / units.K,
-        doc="heat exchanger heat transfer coeff. W/m^2/K",
+        doc="heat exchanger heat transfer coeff. kW/m^2/K",
     )
 
     if mode == "adsorption":
@@ -976,14 +976,40 @@ def RPB_model(mode):
         return m.P[1, o] == m.P_out
 
     # Metrics ==============
+    @m.Expression(doc="CO2 captured [mol/s]")
+    def delta_CO2(m):
+        return m.F_in * m.y_in["CO2"] - m.F_out * m.y_out["CO2"]
+
     m.CO2_capture = Var(initialize=0.5, doc="CO2 capture fraction")
 
     @m.Constraint(doc="CO2 capture fraction")
     def CO2_capture_eq(m):
-        # return 1 - (m.F_out * m.y_out["CO2"]) / (m.F_in * m.y_in["CO2"])
-        return m.CO2_capture * (m.F_in * m.y_in["CO2"]) == (m.F_in * m.y_in["CO2"]) - (
-            m.F_out * m.y_out["CO2"]
-        )
+        return m.CO2_capture * (m.F_in * m.y_in["CO2"]) == m.delta_CO2
+
+    @m.Integral(
+        m.z,
+        m.o,
+        wrt=m.o,
+        doc="Gas to HX heat transfer integrated over theta, function of z [kW/m^3 bed]",
+    )
+    def Q_ghx_z(m, z, o):
+        return m.Q_ghx[z, o]
+
+    @m.Integral(
+        m.z,
+        wrt=m.z,
+        doc="Gas to HX heat transfer integrated over z, [kW/m^3 bed]",
+    )
+    def Q_ghx_tot(m, z):
+        return m.Q_ghx_z[z]
+
+    @m.Expression(doc="section bed volume [m^3 bed]")
+    def bed_vol_section(m):
+        return m.pi * (m.D / 2) ** 2 * m.L * (1 - m.Hx_frac) * m.theta
+
+    @m.Expression(doc="Total heat transfer to HX [kW]")
+    def Q_ghx_tot_kW(m):
+        return m.Q_ghx_tot * m.bed_vol_section
 
     # ==============
 
@@ -1754,6 +1780,29 @@ def full_model_creation(lean_temp_connection=True):
     def theta_constraint(RPB):
         return RPB.ads.theta + RPB.des.theta == 1
 
+    # metrics ===============================================
+    RPB.steam_enthalpy = Param(
+        initialize=2257.92, mutable=True, doc="saturated steam enthalpy at 1 bar[kJ/kg]"
+    )
+
+    @RPB.Expression(doc="Steam energy [kW]")
+    def steam_energy(RPB):
+        return (
+            RPB.des.F_in * RPB.des.y_in["H2O"] * RPB.des.MW["H2O"] * RPB.steam_enthalpy
+        )
+
+    @RPB.Expression(doc="total thermal energy (steam + HX) [kW]")
+    def total_thermal_energy(RPB):
+        return RPB.steam_energy + RPB.des.Q_ghx_tot_kW
+
+    @RPB.Expression(doc="Energy requirement [MJ/kg CO2]")
+    def energy_requirement(RPB):
+        return RPB.total_thermal_energy / RPB.ads.delta_CO2 / RPB.ads.MW["CO2"] * 1e-3
+
+    @RPB.Expression(doc="Productivity [kg CO2/h/m^3]")
+    def productivity(RPB):
+        return RPB.ads.delta_CO2 * RPB.ads.MW["CO2"] * 3600 / RPB.ads.vol_tot
+
     return RPB
 
 
@@ -1831,6 +1880,8 @@ def report(blk):
         blk.des.Tg_in,
         blk.des.Tx,
         blk.ads.CO2_capture,
+        blk.energy_requirement,
+        blk.productivity,
     ]
 
     names = []
@@ -1840,7 +1891,10 @@ def report(blk):
     for item in items:
         names.append(item.to_string())
         values.append(item())
-        fixed.append(item.fixed)
+        if item.ctype != Var:
+            fixed.append("N/A")
+        else:
+            fixed.append(item.fixed)
         docs.append(item.doc)
 
     report_df = pd.DataFrame(
