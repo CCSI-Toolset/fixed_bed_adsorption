@@ -47,13 +47,13 @@ def RPB_model(mode):
 
     z_bounds = (0, 1)
     # z_init_points = tuple(np.linspace(0.0,0.01,5))+tuple(np.linspace(0.99,1,5))
-    z_init_points = tuple(np.linspace(0, 0.1, 10)) + (0.99,)
+    z_init_points = tuple(np.linspace(0, 0.1, 5)) + (0.99,)
     # z_init_points = (0.01, 0.99)
 
     o_bounds = (0, 1)
     # o_init_points = tuple(np.linspace(0.0,0.01,5))+tuple(np.linspace(0.99,1,5))
-    o_init_points = tuple(np.linspace(0, 0.25, 10)) + (0.99,)
-    # o_init_points = (0.01, 0.99)
+    # o_init_points = tuple(np.linspace(0, 0.25, 5)) + (0.99,)
+    o_init_points = (0.01, 0.99)
 
     m.z = ContinuousSet(
         doc="axial nodes [dimensionless]",
@@ -75,8 +75,8 @@ def RPB_model(mode):
         Collpoints_z = 2
         Collpoints_o = 2
     elif disc_method == "Finite Difference":
-        FiniteElem = 20
-        FiniteElem_o = 20
+        FiniteElem = 10
+        FiniteElem_o = 5
     elif disc_method == "Finite Volume":
         FiniteVol = 10
         FiniteVol_o = 10
@@ -107,14 +107,15 @@ def RPB_model(mode):
     m.D = Var(initialize=(10), units=units.m, doc="Bed diameter [m]")
     m.D.fix()
 
-    m.L = Var(initialize=(3), units=units.m, doc="Bed Length [m]")
+    m.L = Var(initialize=(3), bounds=(0.1, 10), units=units.m, doc="Bed Length [m]")
     m.L.fix()
 
-    m.theta = Var(initialize=(0.5), doc="Fraction of bed [-]")
+    m.theta = Var(initialize=(0.5), bounds=(0.05, 0.9), doc="Fraction of bed [-]")
     m.theta.fix()
 
     m.w_rpm = Var(
         initialize=(1),
+        bounds=(0.01, 5),
         units=units.revolutions / units.min,
         doc="bed rotational speed [revolutions/min]",
     )
@@ -214,7 +215,7 @@ def RPB_model(mode):
 
     m.Tg_out = Var(
         initialize=100 + 273.15,
-        bounds=(75 + 273.15, 150 + 273.15),
+        bounds=(75 + 273.15, 180 + 273.15),
         doc="outlet gas temperature [K]",
     )
 
@@ -340,7 +341,7 @@ def RPB_model(mode):
         m.o,
         initialize=m.Tg_in.value,
         # domain=PositiveReals,
-        bounds=(80 + 273.15, 140 + 273.15),
+        bounds=(80 + 273.15, 180 + 273.15),
         doc="Gas phase temperature [K]",
         units=units.K,
     )
@@ -419,7 +420,7 @@ def RPB_model(mode):
         m.o,
         initialize=Ts_in,
         # domain=PositiveReals,
-        bounds=(80 + 273.15, 140 + 273.15),
+        bounds=(80 + 273.15, 180 + 273.15),
         doc="solid phase temperature [K], adsorption",
         units=units.K,
     )
@@ -792,12 +793,14 @@ def RPB_model(mode):
 
     @m.Expression(m.z, m.o, doc="heat of adsorption [kJ/mol]")
     def delH_CO2(m, z, o):
-        return -(delH_1 - (delH_1 - delH_2)) * exp(
-            delH_a1 * (m.qCO2_eq[z, o] - delH_b1)
-        ) / (1 + exp(delH_a1 * (m.qCO2_eq[z, o] - delH_b1))) - (delH_2 - delH_3) * exp(
-            delH_a2 * (m.qCO2_eq[z, o] - delH_b2)
-        ) / (
-            1 + exp(delH_a2 * (m.qCO2_eq[z, o] - delH_b2))
+        return -(
+            delH_1
+            - (delH_1 - delH_2)
+            * exp(delH_a1 * (m.qCO2_eq[z, o] - delH_b1))
+            / (1 + exp(delH_a1 * (m.qCO2_eq[z, o] - delH_b1)))
+            - (delH_2 - delH_3)
+            * exp(delH_a2 * (m.qCO2_eq[z, o] - delH_b2))
+            / (1 + exp(delH_a2 * (m.qCO2_eq[z, o] - delH_b2)))
         )
 
     # ===
@@ -1793,7 +1796,7 @@ def full_model_creation(lean_temp_connection=True):
 
     @RPB.Expression(doc="total thermal energy (steam + HX) [kW]")
     def total_thermal_energy(RPB):
-        return RPB.steam_energy + RPB.des.Q_ghx_tot_kW
+        return RPB.steam_energy - RPB.des.Q_ghx_tot_kW
 
     @RPB.Expression(doc="Energy requirement [MJ/kg CO2]")
     def energy_requirement(RPB):
@@ -1812,7 +1815,7 @@ def init_routine_1(blk):
 
     init_obj.config.block_solver_call_options = {"tee": True}
     init_obj.config.block_solver_options = {
-        "halt_on_ampl_error": "yes",
+        # "halt_on_ampl_error": "yes",
         "max_iter": 500,
     }
 
@@ -2093,6 +2096,13 @@ def full_contactor_plotting(blk, save_option=False):
     # ax.set_title('Adsorption gas phase CO$_{2}$')
     for i in range(len(theta_nodes)):
         ax.plot(z, Tg[i], "-o", label="theta=" + str(round(theta[theta_nodes[i]], 3)))
+    ax.axhline(
+        y=blk.ads.Tx(),
+        xmin=0,
+        xmax=1,
+        color="black",
+        label="Embedded Heat Exchanger Temp [K]",
+    )
     ax.legend()
 
     if save_option:
@@ -2113,6 +2123,13 @@ def full_contactor_plotting(blk, save_option=False):
     # ax.set_title('Adsorption gas phase CO$_{2}$')
     for i in range(len(theta_nodes)):
         ax.plot(z, Tg[i], "-o", label="theta=" + str(round(theta[theta_nodes[i]], 3)))
+    ax.axhline(
+        y=blk.des.Tx(),
+        xmin=0,
+        xmax=1,
+        color="black",
+        label="Embedded Heat Exchanger Temp [K]",
+    )
     ax.legend()
 
     if save_option:
