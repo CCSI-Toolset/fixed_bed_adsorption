@@ -42,13 +42,13 @@ from idaes.core.initialization.block_triangularization import (
 
 
 # Creating pyomo model
-def RPB_model(mode):
+def RPB_model(mode, gas_flow_direction=1):
     m = ConcreteModel()
 
     z_bounds = (0, 1)
+    z_init_points = (0.01, 0.99)
     # z_init_points = tuple(np.linspace(0.0,0.01,5))+tuple(np.linspace(0.99,1,5))
-    z_init_points = tuple(np.linspace(0, 0.1, 5)) + (0.99,)
-    # z_init_points = (0.01, 0.99)
+    # z_init_points = tuple(np.linspace(0, 0.1, 5)) + (0.99,)
 
     o_bounds = (0, 1)
     # o_init_points = tuple(np.linspace(0.0,0.01,5))+tuple(np.linspace(0.99,1,5))
@@ -382,7 +382,7 @@ def RPB_model(mode):
     m.dPdz = DerivativeVar(
         m.P,
         wrt=m.z,
-        bounds=(None, 0),
+        bounds=(None, None),
         doc="axial derivative of pressure [bar/dimensionless bed length]",
     )
 
@@ -850,15 +850,26 @@ def RPB_model(mode):
         m.component_list, m.z, m.o, doc="gas phase species balance PDE [mol/m^3 bed/s]"
     )
     def pde_gasMB(m, k, z, o):
-        if 0 < z < 1:
-            if k == "CO2":
-                return m.dFluxdz[k, z, o] / m.L == -m.Rg_CO2[z, o] * m.R_MT_gas
-            else:
-                return m.dFluxdz[k, z, o] / m.L == 0
-        if z == 1:  # at exit of column, dFluxdz=0
-            return m.dFluxdz[k, z, o] == 0
-        else:  # no balance at z=0, inlets are specified
-            return Constraint.Skip
+        if gas_flow_direction == 1:
+            if 0 < z < 1:
+                if k == "CO2":
+                    return m.dFluxdz[k, z, o] / m.L == -m.Rg_CO2[z, o] * m.R_MT_gas
+                else:
+                    return m.dFluxdz[k, z, o] / m.L == 0
+            if z == 1:  # at exit of column, dFluxdz=0
+                return m.dFluxdz[k, z, o] == 0
+            else:  # no balance at z=0, inlets are specified
+                return Constraint.Skip
+        elif gas_flow_direction == -1:
+            if 0 < z < 1:
+                if k == "CO2":
+                    return -m.dFluxdz[k, z, o] / m.L == -m.Rg_CO2[z, o] * m.R_MT_gas
+                else:
+                    return -m.dFluxdz[k, z, o] / m.L == 0
+            if z == 0:  # at exit of column, dFluxdz=0
+                return -m.dFluxdz[k, z, o] == 0
+            else:  # no balance at z=0, inlets are specified
+                return Constraint.Skip
 
     @m.Constraint(m.component_list, m.z, m.o, doc="flux equation [mol/m^2 bed/s]")
     def flux_eq(m, k, z, o):
@@ -877,12 +888,20 @@ def RPB_model(mode):
 
     @m.Constraint(m.z, m.o, doc="gas phase energy balance PDE [kJ/m^3 bed/s]")
     def pde_gasEB(m, z, o):
-        if 0 < z < 1:
-            return m.dheat_fluxdz[z, o] / m.L == m.Q_gs[z, o] - m.Q_ghx[z, o]
-        elif z == 1:
-            return m.dheat_fluxdz[z, o] == 0
-        else:
-            return Constraint.Skip
+        if gas_flow_direction == 1:
+            if 0 < z < 1:
+                return m.dheat_fluxdz[z, o] / m.L == m.Q_gs[z, o] - m.Q_ghx[z, o]
+            elif z == 1:
+                return m.dheat_fluxdz[z, o] == 0
+            else:
+                return Constraint.Skip
+        elif gas_flow_direction == -1:
+            if 0 < z < 1:
+                return -m.dheat_fluxdz[z, o] / m.L == m.Q_gs[z, o] - m.Q_ghx[z, o]
+            elif z == 0:
+                return -m.dheat_fluxdz[z, o] == 0
+            else:
+                return Constraint.Skip
 
     @m.Constraint(m.z, m.o, doc="solid phase energy balance PDE [kJ/s/m^3 bed]")
     def pde_solidEB(m, z, o):
@@ -897,29 +916,53 @@ def RPB_model(mode):
 
     @m.Constraint(m.z, m.o, doc="Ergun Equation [bar/m]")
     def pde_Ergun(m, z, o):
-        if z > 0:
-            return m.dPdz[z, o] / m.L == m.R_dP * -(
-                1e-5
-                * (150 * m.mu_mix[z, o] * ((1 - m.eb) ** 2) / (m.eb**3))
-                / m.dp**2
-                * m.vel[z, o]
-                + 1e-5
-                * 1.75
-                * (1 - m.eb)
-                / m.eb**3
-                * m.rhog[z, o]
-                / m.dp
-                * m.vel[z, o] ** 2
-            )
-        else:
-            return Constraint.Skip
+        if gas_flow_direction == 1:
+            if z > 0:
+                return m.dPdz[z, o] / m.L == m.R_dP * -(
+                    1e-5
+                    * (150 * m.mu_mix[z, o] * ((1 - m.eb) ** 2) / (m.eb**3))
+                    / m.dp**2
+                    * m.vel[z, o]
+                    + 1e-5
+                    * 1.75
+                    * (1 - m.eb)
+                    / m.eb**3
+                    * m.rhog[z, o]
+                    / m.dp
+                    * m.vel[z, o] ** 2
+                )
+            else:
+                return Constraint.Skip
+        elif gas_flow_direction == -1:
+            if z < 1:
+                return -m.dPdz[z, o] / m.L == m.R_dP * -(
+                    1e-5
+                    * (150 * m.mu_mix[z, o] * ((1 - m.eb) ** 2) / (m.eb**3))
+                    / m.dp**2
+                    * m.vel[z, o]
+                    + 1e-5
+                    * 1.75
+                    * (1 - m.eb)
+                    / m.eb**3
+                    * m.rhog[z, o]
+                    / m.dp
+                    * m.vel[z, o] ** 2
+                )
+            else:
+                return Constraint.Skip
 
     @m.Constraint(m.z, m.o, doc="mole fraction summation")
     def mole_frac_sum(m, z, o):
-        if z > 0:
-            return sum([m.y[k, z, o] for k in m.component_list]) == 1
-        else:
-            return Constraint.Skip
+        if gas_flow_direction == 1:
+            if z > 0:
+                return sum([m.y[k, z, o] for k in m.component_list]) == 1
+            else:
+                return Constraint.Skip
+        elif gas_flow_direction == -1:
+            if z < 1:
+                return sum([m.y[k, z, o] for k in m.component_list]) == 1
+            else:
+                return Constraint.Skip
 
     # Boundary Conditions ===
 
@@ -927,36 +970,92 @@ def RPB_model(mode):
     def bc_q_in(m, z):
         return m.qCO2[z, 0] == m.qCO2_in[z]
 
-    @m.Constraint(m.o, doc="inlet gas temp. B.C. [K]")
-    def bc_gastemp_in(m, o):
-        return m.Tg[0, o] == m.Tg_in
-
     @m.Constraint(m.z, doc="inlet solids temp. [K]")
     def bc_solidtemp_in(m, z):
         return m.Ts[z, 0] == m.Ts_in[z]
 
-    @m.Constraint(m.o, doc="inlet pressure [bar]")
-    def bc_P_in(m, o):
-        return m.P[0, o] == m.P_in
+    if gas_flow_direction == 1:
 
-    @m.Constraint(doc="inlet flow B.C. [mol/s]")
-    def bc_flow_in(m):
-        return m.Flow_z[0] == m.F_in
+        @m.Constraint(m.o, doc="inlet gas temp. B.C. [K]")
+        def bc_gastemp_in(m, o):
+            return m.Tg[0, o] == m.Tg_in
 
-    @m.Constraint(m.component_list, m.o, doc="inlet mole fraction B.C. [-]")
-    def bc_y_in(m, k, o):
-        return m.y[k, 0, o] == m.y_in[k]
+        @m.Constraint(m.o, doc="inlet pressure [bar]")
+        def bc_P_in(m, o):
+            return m.P[0, o] == m.P_in
+
+        @m.Constraint(doc="inlet flow B.C. [mol/s]")
+        def bc_flow_in(m):
+            return m.Flow_z[0] == m.F_in
+
+        @m.Constraint(m.component_list, m.o, doc="inlet mole fraction B.C. [-]")
+        def bc_y_in(m, k, o):
+            return m.y[k, 0, o] == m.y_in[k]
+
+    elif gas_flow_direction == -1:
+
+        @m.Constraint(m.o, doc="inlet gas temp. B.C. [K]")
+        def bc_gastemp_in(m, o):
+            return m.Tg[1, o] == m.Tg_in
+
+        @m.Constraint(m.o, doc="inlet pressure [bar]")
+        def bc_P_in(m, o):
+            return m.P[1, o] == m.P_in
+
+        @m.Constraint(doc="inlet flow B.C. [mol/s]")
+        def bc_flow_in(m):
+            return m.Flow_z[1] == m.F_in
+
+        @m.Constraint(m.component_list, m.o, doc="inlet mole fraction B.C. [-]")
+        def bc_y_in(m, k, o):
+            return m.y[k, 1, o] == m.y_in[k]
 
     # Outlet values ==========
+    if gas_flow_direction == 1:
 
-    @m.Integral(m.o, wrt=m.o, doc="outlet gas enthalpy [kJ/mol]")
-    def Hg_out(m, o):
-        return (
-            sum(m.Flux_kzo[k, 1, o] for k in m.component_list)
-            * m.Cp_g_mix[1, o]
-            * m.Tg[1, o]
-            * m.A_b
-        )
+        @m.Integral(m.o, wrt=m.o, doc="outlet gas enthalpy [kJ/mol]")
+        def Hg_out(m, o):
+            return (
+                sum(m.Flux_kzo[k, 1, o] for k in m.component_list)
+                * m.Cp_g_mix[1, o]
+                * m.Tg[1, o]
+                * m.A_b
+            )
+
+        @m.Constraint(doc="Outlet flow B.C.")
+        def bc_flow_out(m):
+            return m.F_out == m.Flow_z[1]
+
+        @m.Constraint(m.component_list, doc="Outlet mole fraction B.C.")
+        def bc_y_out(m, k):
+            return m.y_out[k] == m.y_kz[k, 1]
+
+        @m.Constraint(m.o, doc="outlet pressure B.C. [bar]")
+        def bc_P_out(m, o):
+            return m.P[1, o] == m.P_out
+
+    elif gas_flow_direction == -1:
+
+        @m.Integral(m.o, wrt=m.o, doc="outlet gas enthalpy [kJ/mol]")
+        def Hg_out(m, o):
+            return (
+                sum(m.Flux_kzo[k, 0, o] for k in m.component_list)
+                * m.Cp_g_mix[0, o]
+                * m.Tg[0, o]
+                * m.A_b
+            )
+
+        @m.Constraint(doc="Outlet flow B.C.")
+        def bc_flow_out(m):
+            return m.F_out == m.Flow_z[0]
+
+        @m.Constraint(m.component_list, doc="Outlet mole fraction B.C.")
+        def bc_y_out(m, k):
+            return m.y_out[k] == m.y_kz[k, 0]
+
+        @m.Constraint(m.o, doc="outlet pressure B.C. [bar]")
+        def bc_P_out(m, o):
+            return m.P[0, o] == m.P_out
 
     @m.Expression(doc="outlet gas heat capacity [kJ/mol/K]")
     def Cp_g_out(m):
@@ -965,18 +1064,6 @@ def RPB_model(mode):
     @m.Constraint(doc="eq. for calculating outlet gas temperature")
     def Tg_out_eq(m):
         return m.Hg_out == m.F_out * m.Cp_g_out * m.Tg_out
-
-    @m.Constraint(doc="Outlet flow B.C.")
-    def bc_flow_out(m):
-        return m.F_out == m.Flow_z[1]
-
-    @m.Constraint(m.component_list, doc="Outlet mole fraction B.C.")
-    def bc_y_out(m, k):
-        return m.y_out[k] == m.y_kz[k, 1]
-
-    @m.Constraint(m.o, doc="outlet pressure B.C. [bar]")
-    def bc_P_out(m, o):
-        return m.P[1, o] == m.P_out
 
     # Metrics ==============
     @m.Expression(doc="CO2 captured [mol/s]")
@@ -1075,7 +1162,10 @@ def RPB_model(mode):
         discretizer.apply_to(m, wrt=m.o, nfe=FiniteElem_o, ncp=Collpoints_o)
     elif disc_method == "Finite Difference":
         discretizer = TransformationFactory("dae.finite_difference")
-        discretizer.apply_to(m, wrt=m.z, nfe=FiniteElem)
+        if gas_flow_direction == 1:
+            discretizer.apply_to(m, wrt=m.z, nfe=FiniteElem, scheme="BACKWARD")
+        elif gas_flow_direction == -1:
+            discretizer.apply_to(m, wrt=m.z, nfe=FiniteElem, scheme="FORWARD")
         discretizer.apply_to(m, wrt=m.o, nfe=FiniteElem_o)
     elif disc_method == "Finite Volume":
         discretizer = TransformationFactory("dae.finite_volume")
@@ -1129,15 +1219,6 @@ def RPB_model(mode):
             iscale.set_scaling_factor(m.y["N2", z, o], 1 / value(m.y_in["N2"]))
             iscale.set_scaling_factor(m.C_tot_eq[z, o], 10)
 
-            if z > 0:
-                iscale.set_scaling_factor(m.dFluxdz_disc_eq["CO2", z, o], 0.1)
-                iscale.set_scaling_factor(m.dFluxdz_disc_eq["H2O", z, o], 0.1)
-                iscale.set_scaling_factor(m.dFluxdz_disc_eq["N2", z, o], 0.1)
-                iscale.set_scaling_factor(m.dPdz[z, o], 100)
-                iscale.set_scaling_factor(m.dPdz_disc_eq[z, o], 0.5)
-                iscale.set_scaling_factor(m.pde_Ergun[z, o], 100)
-                iscale.set_scaling_factor(m.dheat_fluxdz_disc_eq[z, o], 1e-2)
-
             if o > 0:
                 iscale.set_scaling_factor(m.dTsdo_disc_eq[z, o], 1e-4)
                 iscale.set_scaling_factor(m.dqCO2do_disc_eq[z, o], 0.5)
@@ -1150,8 +1231,20 @@ def RPB_model(mode):
                 iscale.set_scaling_factor(m.dTsdo[z, o], 1e-3)
                 iscale.set_scaling_factor(m.pde_gasMB["CO2", z, o], 0.1)
 
-            if z == 0:
-                iscale.set_scaling_factor(m.y["CO2", z, o], 1 / value(m.y_in["CO2"]))
+            if gas_flow_direction == 1:
+                if z > 0:
+                    iscale.set_scaling_factor(m.dFluxdz_disc_eq["CO2", z, o], 0.1)
+                    iscale.set_scaling_factor(m.dFluxdz_disc_eq["H2O", z, o], 0.1)
+                    iscale.set_scaling_factor(m.dFluxdz_disc_eq["N2", z, o], 0.1)
+                    iscale.set_scaling_factor(m.dPdz[z, o], 100)
+                    iscale.set_scaling_factor(m.dPdz_disc_eq[z, o], 0.5)
+                    iscale.set_scaling_factor(m.pde_Ergun[z, o], 100)
+                    iscale.set_scaling_factor(m.dheat_fluxdz_disc_eq[z, o], 1e-2)
+
+                if z == 0:
+                    iscale.set_scaling_factor(
+                        m.y["CO2", z, o], 1 / value(m.y_in["CO2"])
+                    )
 
     for o in m.o:
         iscale.set_scaling_factor(m.bc_gastemp_in[o], 1e-2)
@@ -1675,6 +1768,8 @@ def single_section_init(blk):
 
     blk.R_MT_solid = 1
     blk.R_MT_gas = 1
+
+    print(f"DOF = {degrees_of_freedom(blk)}")
 
     init_obj.initialization_routine(blk)
 
