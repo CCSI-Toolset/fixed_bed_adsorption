@@ -112,7 +112,7 @@ def RPB_model(mode, gas_flow_direction=1):
     elif mode == "desorption":
         theta_0 = 0.5
 
-    m.theta = Var(initialize=(theta_0), bounds=(0.05, 0.95), doc="Fraction of bed [-]")
+    m.theta = Var(initialize=(theta_0), bounds=(0.01, 0.99), doc="Fraction of bed [-]")
     m.theta.fix()
 
     m.w_rpm = Var(
