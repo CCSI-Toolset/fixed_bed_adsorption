@@ -47,15 +47,15 @@ def RPB_model(mode, gas_flow_direction=1):
 
     z_bounds = (0, 1)
     # z_init_points = (0.01, 0.99)
-    z_init_points = tuple(np.linspace(0.01, 0.025, 7)) + tuple(
-        np.linspace(0.975, 0.99, 7)
+    z_init_points = tuple(np.linspace(0.01, 0.05, 5)) + tuple(
+        np.linspace(0.95, 0.99, 5)
     )
     # z_init_points = tuple(np.linspace(0, 0.1, 5)) + (0.99,)
 
     o_bounds = (0, 1)
     # o_init_points = tuple(np.linspace(0.0,0.01,5))+tuple(np.linspace(0.99,1,5))
-    # o_init_points = tuple(np.linspace(0.01, 0.1, 4)) + (0.99,)
-    o_init_points = (0.01, 0.99)
+    o_init_points = tuple(np.linspace(0.01, 0.1, 3)) + (0.99,)
+    # o_init_points = (0.01, 0.99)
 
     m.z = ContinuousSet(
         doc="axial nodes [dimensionless]",
@@ -70,10 +70,10 @@ def RPB_model(mode, gas_flow_direction=1):
     )
 
     z_disc_method = "Finite Difference"
-    o_disc_method = "Collocation"
+    o_disc_method = "Finite Difference"
 
-    z_finite_elements = 25  # also works for finite volume
-    o_finite_elements = 4  # also works for finite volume
+    z_finite_elements = 16  # also works for finite volume
+    o_finite_elements = 8  # also works for finite volume
 
     z_Collpoints = 2  # may not be needed
     o_Collpoints = 2  # may not be needed
@@ -108,9 +108,9 @@ def RPB_model(mode, gas_flow_direction=1):
     m.L.fix()
 
     if mode == "adsorption":
-        theta_0 = 0.5
+        theta_0 = 0.9
     elif mode == "desorption":
-        theta_0 = 0.5
+        theta_0 = 0.1
 
     m.theta = Var(initialize=(theta_0), bounds=(0.01, 0.99), doc="Fraction of bed [-]")
     m.theta.fix()
@@ -229,9 +229,9 @@ def RPB_model(mode, gas_flow_direction=1):
         qCO2_in = 2.5
         Ts_in = 160 + 273
 
-    m.qCO2_in = Var(m.z, initialize=qCO2_in, doc="inlet CO2 loading loading [mol/kg]")
+    # m.qCO2_in = Var(m.z, initialize=qCO2_in, doc="inlet CO2 loading loading [mol/kg]")
 
-    m.Ts_in = Var(m.z, initialize=Ts_in, doc="solids inlet temperature [K]")
+    # m.Ts_in = Var(m.z, initialize=Ts_in, doc="solids inlet temperature [K]")
 
     # =========================== Solids Properties ================================
     m.eb = Param(initialize=(0.68), doc="bed voidage")
@@ -410,7 +410,7 @@ def RPB_model(mode, gas_flow_direction=1):
         m.o,
         initialize=qCO2_in,
         # within=NonNegativeReals,
-        bounds=(1e-5, 5),
+        bounds=(0, 5),
         doc="CO2 loading [mol/kg]",
         units=units.mol / units.kg,
     )
@@ -767,30 +767,18 @@ def RPB_model(mode, gas_flow_direction=1):
 
     # =============================================
 
-    # @m.Expression(
-    #     m.z,
-    #     m.o,
-    #     doc="Partial pressure of CO2 at particle surface [bar] (ideal gas law)",
-    # )
-    # def P_surf(m, z, o):
-    #     # P*y_CO2 using smooth max operator: max(0, x) = 0.5*(x + (x^2 + eps)^0.5)
-    #     return m.P[z, o] * smooth_max(m.y["CO2", z, o])
-
-    m.P_surf = Var(
+    @m.Expression(
         m.z,
         m.o,
-        bounds=(0, 1.2),
-        initialize=m.P_in(),
         doc="Partial pressure of CO2 at particle surface [bar] (ideal gas law)",
     )
-
-    @m.Constraint(m.z, m.o, doc="Partial pressure of CO2 at particle surface [bar]")
-    def P_surf_eq(m, z, o):
-        return m.P_surf[z, o] == m.P[z, o] * m.y["CO2", z, o]
+    def P_surf(m, z, o):
+        # P*y_CO2 using smooth max operator: max(0, x) = 0.5*(x + (x^2 + eps)^0.5)
+        return m.P[z, o] * smooth_max(m.y["CO2", z, o])
 
     @m.Expression(m.z, m.o, doc="log(Psurf)")
     def ln_Psurf(m, z, o):
-        return log(smooth_max(m.P_surf[z, o]))
+        return log(m.P_surf[z, o])
 
     @m.Expression(m.z, m.o, doc="weighting function term1: (ln_Psurf-ln_Pstep)/sigma")
     def iso_w_term1(m, z, o):
@@ -899,7 +887,7 @@ def RPB_model(mode, gas_flow_direction=1):
 
     @m.Constraint(m.z, m.o, doc="solids mass transfer rate [mol/s/m^3 bed]")
     def Rs_CO2_eq(m, z, o):
-        flux_lim = FL(z)
+        flux_lim = 1
 
         if 0 < z < 1 and 0 < o < 1:
             return (
@@ -948,7 +936,7 @@ def RPB_model(mode, gas_flow_direction=1):
         m.z, m.o, doc="Gas-to-solid heat transfer rate [kW/m^3 bed or kJ/s/m^3 bed]"
     )
     def Q_gs_eq(m, z, o):
-        flux_lim = FL(z)
+        flux_lim = 1
 
         if 0 < z < 1 and 0 < o < 1:  # no heat transfer at boundaries
             return m.Q_gs[z, o] == flux_lim * m.R_HT_gs * m.h_gs[z, o] * m.a_s * (
@@ -982,7 +970,7 @@ def RPB_model(mode, gas_flow_direction=1):
         m.z, m.o, doc="Gas-to-HX heat transfer rate [kW/m^3 bed or kJ/s/m^3 bed]"
     )
     def Q_ghx_eq(m, z, o):
-        flux_lim = FL(z)
+        flux_lim = 1
 
         if 0 < z < 1 and 0 < o < 1:  # no heat transfer at boundaries
             return m.Q_ghx[z, o] == flux_lim * m.R_HT_ghx * m.hgx * m.a_ht * (
@@ -1124,13 +1112,17 @@ def RPB_model(mode, gas_flow_direction=1):
 
     # Boundary Conditions ===
 
-    @m.Constraint(m.z, doc="inlet solids loading B.C. [mol/kg]")
-    def bc_q_in(m, z):
-        return m.qCO2[z, 0] == m.qCO2_in[z]
+    # @m.Constraint(m.z, doc="inlet solids loading B.C. [mol/kg]")
+    # def bc_q_in(m, z):
+    #     return m.qCO2[z, 0] == qCO2_in
 
-    @m.Constraint(m.z, doc="inlet solids temp. [K]")
-    def bc_solidtemp_in(m, z):
-        return m.Ts[z, 0] == m.Ts_in[z]
+    # @m.Constraint(m.z, doc="inlet solids temp. [K]")
+    # def bc_solidtemp_in(m, z):
+    #     return m.Ts[z, 0] == Ts_in
+
+    # for z in m.z:
+    #     m.qCO2[z, 0].fix(qCO2_in)
+    #     m.Ts[z, 0].fix(Ts_in)
 
     if gas_flow_direction == 1:
 
@@ -1232,7 +1224,9 @@ def RPB_model(mode, gas_flow_direction=1):
 
     @m.Constraint(doc="CO2 capture fraction")
     def CO2_capture_eq(m):
-        return m.CO2_capture * (m.F_in * m.y_in["CO2"]) == m.delta_CO2
+        return (
+            m.CO2_capture * m.F_in == m.F_in - m.F_out * m.y_out["CO2"] / m.y_in["CO2"]
+        )
 
     @m.Integral(
         m.z,
@@ -1362,7 +1356,7 @@ def RPB_model(mode, gas_flow_direction=1):
 
     # scaling factors ================================
     iscale.set_scaling_factor(m.bc_P_in, 10)
-    iscale.set_scaling_factor(m.bc_y_out["CO2"], 100)
+    iscale.set_scaling_factor(m.bc_y_out["CO2"], 1 / value(m.y_in["CO2"]))
     iscale.set_scaling_factor(m.bc_y_out["H2O"], 1 / value(m.y_in["H2O"]))
     iscale.set_scaling_factor(m.bc_y_out["N2"], 1 / value(m.y_in["N2"]))
     iscale.set_scaling_factor(m.bc_P_out, 10)
@@ -1373,45 +1367,76 @@ def RPB_model(mode, gas_flow_direction=1):
     iscale.set_scaling_factor(m.y_out["CO2"], 100)
     iscale.set_scaling_factor(m.Tx, 1e-2)
     iscale.set_scaling_factor(m.theta, 100)
+    iscale.set_scaling_factor(m.Hg_out, 1e-3)
+    iscale.set_scaling_factor(m.F_in, 0.01)
+    iscale.set_scaling_factor(m.F_out, 0.01)
 
     for z in m.z:
-        iscale.set_scaling_factor(m.bc_solidtemp_in[z], 1e-2)
-        iscale.set_scaling_factor(m.bc_q_in[z], 10)
+        # iscale.set_scaling_factor(m.bc_solidtemp_in[z], 1e-2)
+        # iscale.set_scaling_factor(m.bc_q_in[z], 10)
+        # iscale.set_scaling_factor(m.qCO2_in[z], 10)
+        # iscale.set_scaling_factor(m.Ts_in[z], 1e-2)
+        iscale.set_scaling_factor(m.y_kz["N2", z], 1 / value(m.y_in["N2"]))
+        iscale.set_scaling_factor(m.y_kz["CO2", z], 1 / value(m.y_in["CO2"]))
+        iscale.set_scaling_factor(m.y_kz["H2O", z], 1 / value(m.y_in["H2O"]))
+        iscale.set_scaling_factor(m.y_kz_eq["N2", z], 1 / value(m.y_in["N2"]))
+        iscale.set_scaling_factor(m.y_kz_eq["CO2", z], 1 / value(m.y_in["CO2"]))
+        iscale.set_scaling_factor(m.y_kz_eq["H2O", z], 1 / value(m.y_in["H2O"]))
+        iscale.set_scaling_factor(m.Flow_z[z], 1 / 100)
         for o in m.o:
             iscale.set_scaling_factor(m.vel[z, o], 10)
             iscale.set_scaling_factor(m.qCO2[z, o], 10)
             iscale.set_scaling_factor(m.Tg[z, o], 1e-2)
-            iscale.set_scaling_factor(m.Ts[z, o], 1e-2)
+            iscale.set_scaling_factor(m.Ts[z, o], 1e-1)
             iscale.set_scaling_factor(m.P[z, o], 10)
-            iscale.set_scaling_factor(m.flux_eq["CO2", z, o], 10)
-            iscale.set_scaling_factor(m.flux_eq["H2O", z, o], 10)
-            iscale.set_scaling_factor(m.heat_flux_eq[z, o], 1e-2)
+            iscale.set_scaling_factor(m.flux_eq["CO2", z, o], 1 / value(m.y_in["CO2"]))
+            iscale.set_scaling_factor(m.Flux_kzo["CO2", z, o], 1 / value(m.y_in["CO2"]))
+            iscale.set_scaling_factor(m.flux_eq["H2O", z, o], 1 / value(m.y_in["H2O"]))
+            iscale.set_scaling_factor(m.Flux_kzo["H2O", z, o], 1 / value(m.y_in["H2O"]))
+            iscale.set_scaling_factor(m.heat_flux_eq[z, o], 1e-1)
+            iscale.set_scaling_factor(m.heat_flux[z, o], 1e-1)
             iscale.set_scaling_factor(m.y["H2O", z, o], 1 / value(m.y_in["H2O"]))
             iscale.set_scaling_factor(m.y["N2", z, o], 1 / value(m.y_in["N2"]))
+            iscale.set_scaling_factor(m.y["CO2", z, o], 1 / value(m.y_in["CO2"]))
+            iscale.set_scaling_factor(m.y_eq["H2O", z, o], 1 / value(m.y_in["H2O"]))
+            iscale.set_scaling_factor(m.y_eq["N2", z, o], 1 / value(m.y_in["N2"]))
+            iscale.set_scaling_factor(m.y_eq["CO2", z, o], 1 / value(m.y_in["CO2"]))
+            iscale.set_scaling_factor(m.C["H2O", z, o], 0.1 / value(m.y_in["H2O"]))
+            iscale.set_scaling_factor(m.C["N2", z, o], 0.1 / value(m.y_in["N2"]))
+            iscale.set_scaling_factor(m.C["CO2", z, o], 0.1 / value(m.y_in["CO2"]))
             iscale.set_scaling_factor(m.C_tot_eq[z, o], 10)
+            iscale.set_scaling_factor(m.C_tot[z, o], 0.05)
 
             if o > 0:
-                iscale.set_scaling_factor(m.dTsdo_disc_eq[z, o], 1e-4)
+                iscale.set_scaling_factor(m.dTsdo_disc_eq[z, o], 1e-1)
                 iscale.set_scaling_factor(m.dqCO2do_disc_eq[z, o], 0.5)
 
             if 0 < z < 1 and 0 < o < 1:
-                iscale.set_scaling_factor(m.pde_gasEB[z, o], 1e-1)
-                iscale.set_scaling_factor(m.pde_solidEB[z, o], 1e-4)
-                iscale.set_scaling_factor(m.pde_solidMB[z, o], 1e-1)
+                iscale.set_scaling_factor(m.dqCO2do[z, o], 1e3)
+                iscale.set_scaling_factor(m.pde_gasEB[z, o], 1e0)
+                iscale.set_scaling_factor(m.pde_solidEB[z, o], 1e0)
+                iscale.set_scaling_factor(m.pde_solidMB[z, o], 100)
                 iscale.set_scaling_factor(m.dheat_fluxdz[z, o], 1e-2)
-                iscale.set_scaling_factor(m.dTsdo[z, o], 1e-3)
-                iscale.set_scaling_factor(m.pde_gasMB["CO2", z, o], 0.1)
-                iscale.set_scaling_factor(m.Q_gs_eq[z, o], 1e-3)
+                iscale.set_scaling_factor(m.dTsdo[z, o], 1e0)
+                iscale.set_scaling_factor(m.pde_gasMB["CO2", z, o], 100)
+                iscale.set_scaling_factor(m.Q_gs_eq[z, o], 0.01)
+                iscale.set_scaling_factor(m.Q_gs[z, o], 0.1)
+                iscale.set_scaling_factor(m.Q_delH[z, o], 1)
+                iscale.set_scaling_factor(m.Q_delH_eq[z, o], 1)
+                iscale.set_scaling_factor(m.Rs_CO2[z, o], 10)
+                iscale.set_scaling_factor(m.Rs_CO2_eq[z, o], 1)
 
             if gas_flow_direction == 1:
                 if z > 0:
-                    iscale.set_scaling_factor(m.dFluxdz_disc_eq["CO2", z, o], 0.1)
+                    iscale.set_scaling_factor(m.dFluxdz_disc_eq["CO2", z, o], 10)
                     iscale.set_scaling_factor(m.dFluxdz_disc_eq["H2O", z, o], 0.1)
                     iscale.set_scaling_factor(m.dFluxdz_disc_eq["N2", z, o], 0.1)
                     iscale.set_scaling_factor(m.dPdz[z, o], 100)
-                    iscale.set_scaling_factor(m.dPdz_disc_eq[z, o], 0.5)
+                    iscale.set_scaling_factor(m.dPdz_disc_eq[z, o], 10)
                     iscale.set_scaling_factor(m.pde_Ergun[z, o], 100)
                     iscale.set_scaling_factor(m.dheat_fluxdz_disc_eq[z, o], 1e-2)
+                    iscale.set_scaling_factor(m.dFluxdz["CO2", z, o], 10)
+                    iscale.set_scaling_factor(m.mole_frac_sum[z, o], 100)
 
                 if z == 0:
                     iscale.set_scaling_factor(
@@ -1451,8 +1476,8 @@ def RPB_model(mode, gas_flow_direction=1):
 
     # fixing solid inlet variables
     for z in m.z:
-        m.Ts_in[z].fix()
-        m.qCO2_in[z].fix()
+        m.Ts[z, 0].fix(Ts_in)
+        m.qCO2[z, 0].fix(qCO2_in)
 
     return m
 
@@ -2002,10 +2027,16 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current"):
 
     # connect rich stream
     # unfix inlet loading and temperature to the desorption section. (No mass transfer at boundaries so z=0 and z=1 need to remain fixed.)
+    # for z in RPB.des.z:
+    #     if z != 0 and z != 1:
+    #         RPB.des.qCO2_in[z].unfix()
+    #         RPB.des.Ts_in[z].unfix()
+
+    # delete inlet loading and temperature BCs
     for z in RPB.des.z:
-        if z != 0 and z != 1:
-            RPB.des.qCO2_in[z].unfix()
-            RPB.des.Ts_in[z].unfix()
+        if 0 < z < 1:
+            RPB.des.bc_q_in[z].deactivate()
+            RPB.des.bc_solidtemp_in[z].deactivate()
 
     # add equality constraint equating inlet desorption loading to outlet adsorption loading. Same for temperature.
     @RPB.Constraint(RPB.des.z)
@@ -2013,22 +2044,29 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current"):
         if z == 0 or z == 1:
             return Constraint.Skip
         else:
-            return RPB.des.qCO2_in[z] == RPB.ads.qCO2[z, 1]
+            # return RPB.des.qCO2_in[z] == RPB.ads.qCO2[z, 1]
+            return RPB.des.qCO2[z, 0] == RPB.ads.qCO2[z, 1]
 
     @RPB.Constraint(RPB.des.z)
     def rich_temp_constraint(RPB, z):
         if z == 0 or z == 1:
             return Constraint.Skip
         else:
-            return 1e-2 * RPB.des.Ts_in[z] == 1e-2 * RPB.ads.Ts[z, 1]
+            return 1e-2 * RPB.des.Ts[z, 0] == 1e-2 * RPB.ads.Ts[z, 1]
 
     # connect lean stream
     # unfix inlet loading to the adsorption section
-    for z in RPB.ads.z:
-        if z != 0 and z != 1:
-            RPB.ads.qCO2_in[z].unfix()
+    # for z in RPB.ads.z:
+    #     if z != 0 and z != 1:
+    #         RPB.ads.qCO2_in[z].unfix()
+    #         if lean_temp_connection:
+    #             RPB.ads.Ts_in[z].unfix()
+
+    for z in RPB.des.z:
+        if 0 < z < 1:
+            RPB.ads.bc_q_in[z].deactivate()
             if lean_temp_connection:
-                RPB.ads.Ts_in[z].unfix()
+                RPB.ads.bc_solidtemp_in[z].deactivate()
 
     # add equality constraint equating inlet adsorption loading to outlet desorption loading
     @RPB.Constraint(RPB.ads.z)
@@ -2036,7 +2074,8 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current"):
         if z == 0 or z == 1:
             return Constraint.Skip
         else:
-            return RPB.des.qCO2[z, 1] == RPB.ads.qCO2_in[z]
+            # return RPB.des.qCO2[z, 1] == RPB.ads.qCO2_in[z]
+            return RPB.des.qCO2[z, 1] == RPB.ads.qCO2[z, 0]
 
     if lean_temp_connection:
 
@@ -2045,7 +2084,7 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current"):
             if z == 0 or z == 1:
                 return Constraint.Skip
             else:
-                return 1e-2 * RPB.des.Ts[z, 1] == 1e-2 * RPB.ads.Ts_in[z]
+                return 1e-2 * RPB.des.Ts[z, 1] == 1e-2 * RPB.ads.Ts[z, 0]
 
     # add constraints so that the length, diameter, and rotational speed are the same for both sides
     RPB.des.L.unfix()  # unfix des side vars
@@ -2096,6 +2135,10 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current"):
 
     # add scaling factors
     iscale.set_scaling_factor(RPB.theta_constraint, 1e2)
+    for z in RPB.ads.z:
+        if 0 < z < 1:
+            iscale.set_scaling_factor(RPB.lean_loading_constraint[z], 10)
+            iscale.set_scaling_factor(RPB.rich_loading_constraint[z], 10)
 
     return RPB
 
@@ -2115,6 +2158,7 @@ def init_routine_1(blk):
     blk.des.R_MT_solid = 1
 
     # run initialization routine
+    print(degrees_of_freedom(blk))
 
     init_obj.initialization_routine(blk)
 
