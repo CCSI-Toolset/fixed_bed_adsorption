@@ -1463,18 +1463,32 @@ def RPB_model(mode, gas_flow_direction=1):
                     iscale.set_scaling_factor(m.flux_eq["H2O", z, o], 1)
             elif gas_flow_direction == -1:
                 if z < 1:
-                    iscale.set_scaling_factor(m.dFluxdz_disc_eq["CO2", z, o], 0.1)
-                    iscale.set_scaling_factor(m.dFluxdz_disc_eq["H2O", z, o], 0.1)
+                    iscale.set_scaling_factor(
+                        m.dFluxdz_disc_eq["CO2", z, o], 10 * value(m.y_in["CO2"])
+                    )
+                    iscale.set_scaling_factor(
+                        m.dFluxdz_disc_eq["H2O", z, o], 10 * value(m.y_in["H2O"])
+                    )
                     iscale.set_scaling_factor(m.dFluxdz_disc_eq["N2", z, o], 0.1)
-                    iscale.set_scaling_factor(m.dPdz[z, o], 100)
-                    iscale.set_scaling_factor(m.dPdz_disc_eq[z, o], 0.5)
+                    iscale.set_scaling_factor(m.dPdz[z, o], 10)
+                    iscale.set_scaling_factor(m.dPdz_disc_eq[z, o], 10)
                     iscale.set_scaling_factor(m.pde_Ergun[z, o], 100)
                     iscale.set_scaling_factor(m.dheat_fluxdz_disc_eq[z, o], 1e-2)
-
-                if z == 1:
                     iscale.set_scaling_factor(
-                        m.y["CO2", z, o], 1 / value(m.y_in["CO2"])
+                        m.dFluxdz["CO2", z, o], 10 * value(m.y_in["CO2"])
                     )
+                    iscale.set_scaling_factor(
+                        m.dFluxdz["H2O", z, o], 10 * value(m.y_in["H2O"])
+                    )
+                    iscale.set_scaling_factor(m.mole_frac_sum[z, o], 100)
+
+                if z == 0:
+                    iscale.set_scaling_factor(m.dFluxdz_disc_eq["CO2", z, o], 0.1)
+                    iscale.set_scaling_factor(m.dFluxdz["CO2", z, o], 0.1)
+                    iscale.set_scaling_factor(m.Flux_kzo["CO2", z, o], 1)
+                    iscale.set_scaling_factor(m.flux_eq["CO2", z, o], 1)
+                    iscale.set_scaling_factor(m.Flux_kzo["H2O", z, o], 1)
+                    iscale.set_scaling_factor(m.flux_eq["H2O", z, o], 1)
 
     for o in m.o:
         iscale.set_scaling_factor(m.bc_gastemp_in[o], 1e-2)
