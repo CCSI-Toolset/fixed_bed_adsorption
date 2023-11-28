@@ -46,16 +46,16 @@ def RPB_model(mode, gas_flow_direction=1):
     m = ConcreteModel()
 
     z_bounds = (0, 1)
-    z_init_points = (0.01, 0.99)
-    z_init_points = tuple(np.linspace(0.01, 0.05, 5)) + tuple(
-        np.linspace(0.95, 0.99, 5)
+    # z_init_points = (0.01, 0.99)
+    z_init_points = tuple(np.linspace(0.01, 0.1, 10)) + tuple(
+        np.linspace(0.9, 0.99, 10)
     )
     # z_init_points = tuple(np.linspace(0, 0.1, 5)) + (0.99,)
 
     o_bounds = (0, 1)
     # o_init_points = tuple(np.linspace(0.0,0.01,5))+tuple(np.linspace(0.99,1,5))
-    # o_init_points = tuple(np.linspace(0.01, 0.1, 3)) + (0.99,)
-    o_init_points = (0.01, 0.99)
+    o_init_points = tuple(np.linspace(0.01, 0.1, 8)) + (0.99,)
+    # o_init_points = (0.01, 0.99)
 
     m.z = ContinuousSet(
         doc="axial nodes [dimensionless]",
@@ -69,11 +69,11 @@ def RPB_model(mode, gas_flow_direction=1):
         initialize=o_init_points,
     )
 
-    z_disc_method = "Finite Difference"
-    o_disc_method = "Finite Difference"
+    z_disc_method = "Finite Volume"
+    o_disc_method = "Finite Volume"
 
-    z_finite_elements = 16  # also works for finite volume
-    o_finite_elements = 8  # also works for finite volume
+    z_finite_elements = 40  # also works for finite volume
+    o_finite_elements = 20  # also works for finite volume
 
     z_Collpoints = 2  # may not be needed
     o_Collpoints = 2  # may not be needed
@@ -108,16 +108,16 @@ def RPB_model(mode, gas_flow_direction=1):
     m.L.fix()
 
     if mode == "adsorption":
-        theta_0 = 0.5
+        theta_0 = 0.75
     elif mode == "desorption":
-        theta_0 = 0.5
+        theta_0 = 0.25
 
     m.theta = Var(initialize=(theta_0), bounds=(0.01, 0.99), doc="Fraction of bed [-]")
     m.theta.fix()
 
     m.w_rpm = Var(
-        initialize=(1),
-        bounds=(0.01, 5),
+        initialize=(0.001),
+        bounds=(0.00001, 2),
         units=units.revolutions / units.min,
         doc="bed rotational speed [revolutions/min]",
     )
@@ -128,6 +128,12 @@ def RPB_model(mode, gas_flow_direction=1):
         mutable=True,
         doc="fraction of total reactor volume occupied by the embedded"
         "heat exchanger",
+    )
+
+    m.a_sp = Param(
+        initialize=(50),
+        units=units.m**2 / units.m**3,
+        doc="specific surface area for heat transfer [m^2/m^3]",
     )
 
     @m.Expression(doc="bed rotational speed [radians/s]")
@@ -148,7 +154,7 @@ def RPB_model(mode, gas_flow_direction=1):
 
     @m.Expression(doc="specific heat transfer area [m^2/m^3]")
     def a_ht(m):  # current assumption, can update this later
-        return 50
+        return m.a_sp
 
     # ============================ Gas Inlet =======================================
     m.F_in = Var(
@@ -169,7 +175,7 @@ def RPB_model(mode, gas_flow_direction=1):
         Tg_in = 90 + 273
         y_in = {"CO2": 0.04, "N2": 0.87, "H2O": 0.09}
     elif mode == "desorption":
-        Tg_in = 160 + 273
+        Tg_in = 120 + 273
         y_in = {"CO2": 1e-5, "N2": 1e-3, "H2O": (1 - 1e-5 - 1e-3)}
 
     m.Tg_in = Var(initialize=Tg_in, units=units.K, doc="Inlet flue gas temperature [K]")
@@ -221,18 +227,6 @@ def RPB_model(mode, gas_flow_direction=1):
         doc="outlet gas temperature [K]",
     )
 
-    # =========================== Solids Inlet =====================================
-    if mode == "adsorption":
-        qCO2_in = 1
-        Ts_in = 100 + 273
-    elif mode == "desorption":
-        qCO2_in = 2.5
-        Ts_in = 160 + 273
-
-    m.qCO2_in = Var(m.z, initialize=qCO2_in, doc="inlet CO2 loading loading [mol/kg]")
-
-    m.Ts_in = Var(m.z, initialize=Ts_in, doc="solids inlet temperature [K]")
-
     # =========================== Solids Properties ================================
     m.eb = Param(initialize=(0.68), doc="bed voidage")
     m.ep = Param(initialize=(0.68), doc="particle porosity")
@@ -270,7 +264,7 @@ def RPB_model(mode, gas_flow_direction=1):
     if mode == "adsorption":
         Tx = 90 + 273
     elif mode == "desorption":
-        Tx = 160 + 273
+        Tx = 120 + 273
 
     m.Tx = Var(
         initialize=Tx,
@@ -367,7 +361,7 @@ def RPB_model(mode, gas_flow_direction=1):
         m.o,
         initialize=value(m.vel0),
         # domain=PositiveReals,
-        bounds=(0.01, 5),
+        bounds=(0, 5),
         doc="gas velocity [m/s], adsorption",
     )
 
@@ -404,11 +398,17 @@ def RPB_model(mode, gas_flow_direction=1):
     )
 
     # ========================= Solids =============================================
+    if mode == "adsorption":
+        qCO2_in_init = 1
+        Ts_in_init = 100 + 273
+    elif mode == "desorption":
+        qCO2_in_init = 2.5
+        Ts_in_init = 110 + 273
 
     m.qCO2 = Var(
         m.z,
         m.o,
-        initialize=qCO2_in,
+        initialize=qCO2_in_init,
         # within=NonNegativeReals,
         bounds=(0, 5),
         doc="CO2 loading [mol/kg]",
@@ -420,7 +420,7 @@ def RPB_model(mode, gas_flow_direction=1):
     m.Ts = Var(
         m.z,
         m.o,
-        initialize=Ts_in,
+        initialize=Ts_in_init,
         # domain=PositiveReals,
         bounds=(25 + 273.15, 180 + 273.15),
         doc="solid phase temperature [K], adsorption",
@@ -672,7 +672,8 @@ def RPB_model(mode, gas_flow_direction=1):
 
     def smooth_max(x):
         # smooth max operator: max(0, x) = 0.5*(x + (x^2 + eps)^0.5)
-        return 0.5 * (x + (x**2 + 1e-6) ** 0.5)
+        eps = 1e-6
+        return 0.5 * (x + (x**2 + eps) ** 0.5)
 
     @m.Expression(m.z, m.o, doc="Sherwood number")
     def Sh(m, z, o):
@@ -1112,18 +1113,6 @@ def RPB_model(mode, gas_flow_direction=1):
 
     # Boundary Conditions ===
 
-    @m.Constraint(m.z, doc="inlet solids loading B.C. [mol/kg]")
-    def bc_q_in(m, z):
-        return m.qCO2[z, 0] == m.qCO2_in[z]
-
-    @m.Constraint(m.z, doc="inlet solids temp. [K]")
-    def bc_solidtemp_in(m, z):
-        return m.Ts[z, 0] == m.Ts_in[z]
-
-    # for z in m.z:
-    #     m.qCO2[z, 0].fix(qCO2_in)
-    #     m.Ts[z, 0].fix(Ts_in)
-
     if gas_flow_direction == 1:
 
         @m.Constraint(m.o, doc="inlet gas temp. B.C. [K]")
@@ -1165,12 +1154,7 @@ def RPB_model(mode, gas_flow_direction=1):
 
         @m.Integral(m.o, wrt=m.o, doc="outlet gas enthalpy [kJ/mol]")
         def Hg_out(m, o):
-            return (
-                sum(m.Flux_kzo[k, 1, o] for k in m.component_list)
-                * m.Cp_g_mix[1, o]
-                * m.Tg[1, o]
-                * m.A_b
-            )
+            return m.heat_flux[1, o] * m.A_b
 
         @m.Constraint(doc="Outlet flow B.C.")
         def bc_flow_out(m):
@@ -1188,12 +1172,7 @@ def RPB_model(mode, gas_flow_direction=1):
 
         @m.Integral(m.o, wrt=m.o, doc="outlet gas enthalpy [kJ/mol]")
         def Hg_out(m, o):
-            return (
-                sum(m.Flux_kzo[k, 0, o] for k in m.component_list)
-                * m.Cp_g_mix[0, o]
-                * m.Tg[0, o]
-                * m.A_b
-            )
+            return m.heat_flux[0, o] * m.A_b
 
         @m.Constraint(doc="Outlet flow B.C.")
         def bc_flow_out(m):
@@ -1216,6 +1195,14 @@ def RPB_model(mode, gas_flow_direction=1):
         return m.Hg_out == m.F_out * m.Cp_g_out * m.Tg_out
 
     # Metrics ==============
+    @m.Expression(m.z, doc="inlet solids loading B.C. [mol/kg]")
+    def qCO2_in(m, z):
+        return m.qCO2[z, 0]
+
+    @m.Expression(m.z, doc="inlet solids temp. [K]")
+    def Ts_in(m, z):
+        return m.Ts[z, 0]
+
     @m.Expression(doc="CO2 captured [mol/s]")
     def delta_CO2(m):
         return m.F_in * m.y_in["CO2"] - m.F_out * m.y_out["CO2"]
@@ -1323,11 +1310,11 @@ def RPB_model(mode, gas_flow_direction=1):
         z_discretizer = TransformationFactory("dae.finite_volume")
         if gas_flow_direction == 1:
             z_discretizer.apply_to(
-                m, wrt=m.z, nfv=z_finite_elements, scheme="Minmod", flow_direction=1
+                m, wrt=m.z, nfv=z_finite_elements, scheme="WENO3", flow_direction=1
             )
         elif gas_flow_direction == -1:
             z_discretizer.apply_to(
-                m, wrt=m.z, nfv=z_finite_elements, scheme="Minmod", flow_direction=-1
+                m, wrt=m.z, nfv=z_finite_elements, scheme="WENO3", flow_direction=-1
             )
 
     if o_disc_method == "Collocation":
@@ -1339,7 +1326,7 @@ def RPB_model(mode, gas_flow_direction=1):
     elif o_disc_method == "Finite Volume":
         o_discretizer = TransformationFactory("dae.finite_volume")
         o_discretizer.apply_to(
-            m, wrt=m.o, nfv=o_finite_elements, scheme="Minmod", flow_direction=1
+            m, wrt=m.o, nfv=o_finite_elements, scheme="WENO3", flow_direction=1
         )
 
     # initializing some variables and setting scaling factors
@@ -1374,10 +1361,6 @@ def RPB_model(mode, gas_flow_direction=1):
     iscale.set_scaling_factor(m.bc_flow_out, 0.001)
 
     for z in m.z:
-        iscale.set_scaling_factor(m.bc_solidtemp_in[z], 1e0)
-        iscale.set_scaling_factor(m.Ts_in[z], 1e0)
-        iscale.set_scaling_factor(m.bc_q_in[z], 10)
-        iscale.set_scaling_factor(m.qCO2_in[z], 10)
         iscale.set_scaling_factor(m.y_kz["N2", z], 1 / value(m.y_in["N2"]))
         iscale.set_scaling_factor(m.y_kz["CO2", z], 25)
         iscale.set_scaling_factor(m.y_kz["H2O", z], 1 / value(m.y_in["H2O"]))
@@ -1417,8 +1400,8 @@ def RPB_model(mode, gas_flow_direction=1):
                 iscale.set_scaling_factor(m.Flux_kzo["H2O", z, o], 1e1)
 
             if 0 < z < 1 and 0 < o < 1:
-                iscale.set_scaling_factor(m.dqCO2do[z, o], 1e1)
-                iscale.set_scaling_factor(m.dqCO2do_disc_eq[z, o], 1e1)
+                iscale.set_scaling_factor(m.dqCO2do[z, o], 1e-2)
+                iscale.set_scaling_factor(m.dqCO2do_disc_eq[z, o], 1e-2)
                 iscale.set_scaling_factor(m.pde_gasEB[z, o], 1e0)
                 iscale.set_scaling_factor(m.pde_solidEB[z, o], 1e-2)
                 iscale.set_scaling_factor(m.pde_solidMB[z, o], 10)
@@ -1537,8 +1520,8 @@ def RPB_model(mode, gas_flow_direction=1):
 
     # fixing solid inlet variables
     for z in m.z:
-        m.Ts_in[z].fix()
-        m.qCO2_in[z].fix()
+        m.Ts[z, 0].fix()
+        m.qCO2[z, 0].fix()
 
     return m
 
@@ -2064,6 +2047,53 @@ def single_section_init(blk):
     solver.solve(blk, tee=True).write()
 
 
+def single_section_init2(blk):
+    blk.P_in.fix(1.1)
+    blk.Tg_in.fix()
+    blk.y_in.fix()
+    blk.P_out.fix(1.01325)
+
+    # add dummy objective
+    blk.obj = Objective(expr=0)
+
+    results = SolverFactory("gams").solve(
+        blk,
+        tee=True,
+        keepfiles=True,
+        solver="conopt4",
+        tmpdir="temp",
+        add_options=["gams_model.optfile=1;"],
+    )
+
+    blk.R_MT_solid = 1
+    blk.R_MT_gas = 1
+    blk.R_MT_coeff = 1
+
+    print(f"DOF = {degrees_of_freedom(blk)}")
+
+    results = SolverFactory("gams").solve(
+        blk,
+        tee=True,
+        keepfiles=True,
+        solver="conopt4",
+        tmpdir="temp",
+        add_options=["gams_model.optfile=1;"],
+    )
+    
+    blk.R_HT_ghx = 1
+    blk.R_HT_gs = 1
+    blk.R_delH = 1
+
+    results = SolverFactory("gams").solve(
+        blk,
+        tee=True,
+        keepfiles=True,
+        solver="conopt4",
+        tmpdir="temp",
+        add_options=["gams_model.optfile=1;"],
+    )
+
+
 def full_model_creation(lean_temp_connection=True, configuration="co-current"):
     RPB = ConcreteModel()
 
@@ -2089,9 +2119,9 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current"):
     # connect rich stream
     # unfix inlet loading and temperature to the desorption section. (No mass transfer at boundaries so z=0 and z=1 need to remain fixed.)
     for z in RPB.des.z:
-        if z != 0 and z != 1:
-            RPB.des.qCO2_in[z].unfix()
-            RPB.des.Ts_in[z].unfix()
+        if 0 < z < 1:
+            RPB.des.qCO2[z, 0].unfix()
+            RPB.des.Ts[z, 0].unfix()
 
     # delete inlet loading and temperature BCs
     # for z in RPB.des.z:
@@ -2102,26 +2132,25 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current"):
     # add equality constraint equating inlet desorption loading to outlet adsorption loading. Same for temperature.
     @RPB.Constraint(RPB.des.z)
     def rich_loading_constraint(RPB, z):
-        if z == 0 or z == 1:
-            return Constraint.Skip
+        if 0 < z < 1:
+            return RPB.des.qCO2[z, 0] == RPB.ads.qCO2[z, 1]
         else:
-            return RPB.des.qCO2_in[z] == RPB.ads.qCO2[z, 1]
-            # return RPB.des.qCO2[z, 0] == RPB.ads.qCO2[z, 1]
+            return Constraint.Skip
 
     @RPB.Constraint(RPB.des.z)
     def rich_temp_constraint(RPB, z):
-        if z == 0 or z == 1:
-            return Constraint.Skip
+        if 0 < z < 1:
+            return RPB.des.Ts[z, 0] == RPB.ads.Ts[z, 1]
         else:
-            return RPB.des.Ts_in[z] == RPB.ads.Ts[z, 1]
+            return Constraint.Skip
 
     # connect lean stream
     # unfix inlet loading to the adsorption section
     for z in RPB.ads.z:
-        if z != 0 and z != 1:
-            RPB.ads.qCO2_in[z].unfix()
+        if 0 < z < 1:
+            RPB.ads.qCO2[z, 0].unfix()
             if lean_temp_connection:
-                RPB.ads.Ts_in[z].unfix()
+                RPB.ads.Ts[z, 0].unfix()
 
     # for z in RPB.des.z:
     #     if 0 < z < 1:
@@ -2132,20 +2161,19 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current"):
     # add equality constraint equating inlet adsorption loading to outlet desorption loading
     @RPB.Constraint(RPB.ads.z)
     def lean_loading_constraint(RPB, z):
-        if z == 0 or z == 1:
-            return Constraint.Skip
+        if 0 < z < 1:
+            return RPB.ads.qCO2[z, 0] == RPB.des.qCO2[z, 1]
         else:
-            return RPB.des.qCO2[z, 1] == RPB.ads.qCO2_in[z]
-            # return RPB.des.qCO2[z, 1] == RPB.ads.qCO2[z, 0]
+            return Constraint.Skip
 
     if lean_temp_connection:
 
         @RPB.Constraint(RPB.ads.z)
         def lean_temp_constraint(RPB, z):
-            if z == 0 or z == 1:
-                return Constraint.Skip
+            if 0 < z < 1:
+                return RPB.ads.Ts[z, 0] == RPB.des.Ts[z, 1]
             else:
-                return RPB.des.Ts[z, 1] == RPB.ads.Ts_in[z]
+                return Constraint.Skip
 
     # add constraints so that the length, diameter, and rotational speed are the same for both sides
     RPB.des.L.unfix()  # unfix des side vars
