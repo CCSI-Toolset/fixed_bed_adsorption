@@ -48,8 +48,8 @@ def RPB_model(mode, gas_flow_direction=1):
     z_bounds = (0, 1)
     # z_init_points = (0.01, 0.99)
     # z_init_points = tuple(np.linspace(0.01, 0.1, 5)) + tuple(np.linspace(0.9, 0.99, 5))
-    z_init_points = tuple(np.geomspace(0.01, 0.5, 14)[:-1]) + tuple(
-        (1 - np.geomspace(0.01, 0.5, 14))[::-1]
+    z_init_points = tuple(np.geomspace(0.01, 0.5, 12)[:-1]) + tuple(
+        (1 - np.geomspace(0.01, 0.5, 12))[::-1]
     )
     # z_init_points = tuple(np.linspace(0, 0.1, 5)) + (0.99,)
 
@@ -57,8 +57,8 @@ def RPB_model(mode, gas_flow_direction=1):
     # o_init_points = tuple(np.linspace(0.0,0.01,5))+tuple(np.linspace(0.99,1,5))
     # o_init_points = tuple(np.linspace(0.01, 0.1, 4)) + (0.99,)
     # o_init_points = tuple(np.geomspace(0.01, 0.99, 10))
-    o_init_points = tuple(np.geomspace(0.005, 0.1, 5)) + tuple(
-        np.linspace(0.1, 0.995, 5)[1:]
+    o_init_points = tuple(np.geomspace(0.005, 0.1, 6)) + tuple(
+        np.linspace(0.1, 0.995, 6)[1:]
     )
     # o_init_points = (0.01, 0.99)
 
@@ -77,8 +77,8 @@ def RPB_model(mode, gas_flow_direction=1):
     z_disc_method = "Finite Difference"
     o_disc_method = "Finite Difference"
 
-    z_finite_elements = 30  # also works for finite volume
-    o_finite_elements = 11  # also works for finite volume
+    z_finite_elements = 26  # also works for finite volume
+    o_finite_elements = 14  # also works for finite volume
 
     z_Collpoints = 2  # may not be needed
     o_Collpoints = 2  # may not be needed
@@ -319,13 +319,14 @@ def RPB_model(mode, gas_flow_direction=1):
     #     units=units.mol / units.m**3,
     # )
 
-    m.C_tot = Var(
+    m.Cs_r = Var(
         m.z,
         m.o,
-        initialize=value(m.C_tot_in),
+        initialize=value(m.C_in["CO2"]),
+        # domain=NonNegativeReals,
         bounds=(0, 100),
-        doc="Total conc., [mol/m^3] (ideal gas law)",
         units=units.mol / units.m**3,
+        doc="particle surface concentration of CO2 [mol/m^3]",
     )
 
     m.y = Var(
@@ -476,11 +477,26 @@ def RPB_model(mode, gas_flow_direction=1):
 
     # Section 2: Gas Equations, Gas Properties, Dimensionless Groups, and Variables related
 
+    m.C_tot = Var(
+        m.z,
+        m.o,
+        initialize=value(m.C_tot_in),
+        bounds=(0, 100),
+        doc="Total conc., [mol/m^3] (ideal gas law)",
+        units=units.mol / units.m**3,
+    )
+
     @m.Constraint(
         m.z, m.o, doc="total concentration equation (ideal gas law) [mol/m^3]"
     )
     def C_tot_eq(m, z, o):
         return m.C_tot[z, o] * m.Rg * m.Tg[z, o] == m.P[z, o]
+
+    # @m.Expression(
+    #     m.z, m.o, doc="total concentration equation (ideal gas law) [mol/m^3]"
+    # )
+    # def C_tot(m, z, o):
+    #     return m.P[z, o] / m.Rg / m.Tg[z, o]
 
     # @m.Constraint(
     #     m.component_list,
@@ -705,6 +721,10 @@ def RPB_model(mode, gas_flow_direction=1):
     def h_gs(m, z, o):
         return m.Nu[z, o] * m.k_mix[z, o] / m.dp
 
+    @m.Expression(m.z, m.o, doc="Gas phase film mass transfer coefficient [m/s]")
+    def k_f(m, z, o):
+        return m.Sh[z, o] * m.DmCO2 / m.dp
+
     # ===
 
     # Isotherm model =======
@@ -783,8 +803,10 @@ def RPB_model(mode, gas_flow_direction=1):
         doc="Partial pressure of CO2 at particle surface [bar] (ideal gas law)",
     )
     def P_surf(m, z, o):
-        # P*y_CO2 using smooth max operator: max(0, x) = 0.5*(x + (x^2 + eps)^0.5)
-        return m.P[z, o] * smooth_max(m.y["CO2", z, o])
+        # using smooth max operator: max(0, x) = 0.5*(x + (x^2 + eps)^0.5)
+        # return m.P[z, o] * smooth_max(m.y["CO2", z, o])
+        # or
+        return smooth_max(m.Cs_r[z, o]) * m.Rg * m.Ts[z, o]
 
     @m.Expression(m.z, m.o, doc="log(Psurf)")
     def ln_Psurf(m, z, o):
@@ -878,9 +900,9 @@ def RPB_model(mode, gas_flow_direction=1):
     #         return 0
 
     # flux limiter equation
-    a1_FL = 0.05
-    a2_FL = 0.95
-    sig_FL = 0.02
+    a1_FL = 0.02
+    a2_FL = 0.98
+    sig_FL = 0.01
 
     def FL(z):
         def FL_1(z):
@@ -897,7 +919,7 @@ def RPB_model(mode, gas_flow_direction=1):
 
     @m.Constraint(m.z, m.o, doc="solids mass transfer rate [mol/s/m^3 bed]")
     def Rs_CO2_eq(m, z, o):
-        flux_lim = 1
+        flux_lim = FL(z)
 
         if 0 < z < 1 and 0 < o < 1:
             return (
@@ -911,12 +933,49 @@ def RPB_model(mode, gas_flow_direction=1):
         else:
             return m.Rs_CO2[z, o] == 0
 
+    # @m.Expression(m.z, m.o, doc="solids mass transfer rate [mol/s/m^3 bed]")
+    # def Rs_CO2(m, z, o):
+    #     flux_lim = 1
+
+    #     if 0 < z < 1 and 0 < o < 1:
+    #         return (
+    #             flux_lim
+    #             * m.k_I[z, o]
+    #             * (m.qCO2_eq[z, o] - m.qCO2[z, o])
+    #             * (1 - m.eb)
+    #             * m.rho_sol
+    #         )
+    #     else:
+    #         return 0
+
     @m.Expression(m.z, m.o, doc="gas mass transfer rate [mol/s/m^3 bed]")
     def Rg_CO2(m, z, o):
         if 0 < z < 1 and 0 < o < 1:  # no mass transfer at boundaries
             return m.Rs_CO2[z, o]  # option 2
         else:
             return 0
+
+    @m.Constraint(m.z, m.o, doc="gas and solid phase mass transfer continuity")
+    def constr_MTcont(m, z, o):
+        """
+        Mass transfer continuity between the gas and solid phase. Used to calculate
+        Csurf which sets driving force for gas phase mass transfer. A couple options
+        for how to write this.
+
+        If m.Rg_CO2 = m.kf*m.a_s*(m.C['CO2']-m.Cs_r) set as expression, then:
+            m.Rg_CO2[z,o] == m.Rs_CO2[z,o]
+
+        If m.Rg_CO2 = m.Rs_CO2 set as expression, then a couple options:
+            1) m.Rg_CO2[z,o] == m.k_f[z,o]*m.a_s*(m.C['CO2',z,o]-m.Cs_r[z,o])
+            2) m.C['CO2',z,o] == m.Rg_CO2[z,o]/m.k_f[z,o]/m.a_s + m.Cs_r[z,o]
+
+        """
+        # return m.Rg_CO2[z,o] == m.Rs_CO2[z,o] #option 1
+        # return m.Rg_CO2[z,o] == m.k_f[z,o]*m.a_s*(m.C['CO2',z,o]-m.Cs_r[z,o]) #option 2a
+        return (
+            m.Cs_r[z, o] * m.k_f[z, o] * m.a_s
+            == m.C["CO2", z, o] * m.k_f[z, o] * m.a_s - m.Rg_CO2[z, o]
+        )  # option 2b
 
     # heat transfer rates ===
     # @m.Expression(
@@ -946,7 +1005,7 @@ def RPB_model(mode, gas_flow_direction=1):
         m.z, m.o, doc="Gas-to-solid heat transfer rate [kW/m^3 bed or kJ/s/m^3 bed]"
     )
     def Q_gs_eq(m, z, o):
-        flux_lim = 1
+        flux_lim = FL(z)
 
         if 0 < z < 1 and 0 < o < 1:  # no heat transfer at boundaries
             return m.Q_gs[z, o] == flux_lim * m.R_HT_gs * m.h_gs[z, o] * m.a_s * (
@@ -980,7 +1039,7 @@ def RPB_model(mode, gas_flow_direction=1):
         m.z, m.o, doc="Gas-to-HX heat transfer rate [kW/m^3 bed or kJ/s/m^3 bed]"
     )
     def Q_ghx_eq(m, z, o):
-        flux_lim = 1
+        flux_lim = FL(z)
 
         if 0 < z < 1 and 0 < o < 1:  # no heat transfer at boundaries
             return m.Q_ghx[z, o] == flux_lim * m.R_HT_ghx * m.hgx * m.a_ht * (
@@ -1433,8 +1492,10 @@ def RPB_model(mode, gas_flow_direction=1):
             # iscale.set_scaling_factor(m.C["H2O", z, o], 0.1 / value(m.y_in["H2O"]))
             # iscale.set_scaling_factor(m.C["N2", z, o], 0.1 / value(m.y_in["N2"]))
             # iscale.set_scaling_factor(m.C["CO2", z, o], 2.5)
-            iscale.set_scaling_factor(m.C_tot_eq[z, o], 10)
-            iscale.set_scaling_factor(m.C_tot[z, o], 0.05)
+            # iscale.set_scaling_factor(m.C_tot_eq[z, o], 10)
+            # iscale.set_scaling_factor(m.C_tot[z, o], 0.05)
+            iscale.set_scaling_factor(m.Cs_r[z, o], 2.5)
+            iscale.set_scaling_factor(m.constr_MTcont[z, o], 2.5)
 
             if o == 0 or o == 1:
                 iscale.set_scaling_factor(m.flux_eq["CO2", z, o], 1e1)
@@ -1484,13 +1545,13 @@ def RPB_model(mode, gas_flow_direction=1):
                     iscale.set_scaling_factor(m.Flux_kzo["H2O", z, o], 1)
                     iscale.set_scaling_factor(m.flux_eq["H2O", z, o], 1)
 
-                # if z == 0:
-                #     iscale.set_scaling_factor(
-                #         m.y["CO2", z, o], 1 / value(m.y_in["CO2"])
-                #     )
-                #     iscale.set_scaling_factor(
-                #         m.C["CO2", z, o], 1 / value(m.y_in["CO2"])
-                #     )
+                if z == 0:
+                    iscale.set_scaling_factor(
+                        m.y["CO2", z, o], 1 / value(m.y_in["CO2"])
+                    )
+                    # iscale.set_scaling_factor(
+                    #     m.C["CO2", z, o], 1 / value(m.y_in["CO2"])
+                    # )
             elif gas_flow_direction == -1:
                 if z < 1:
                     iscale.set_scaling_factor(m.dFluxdz_disc_eq["CO2", z, o], 0.5)
@@ -2306,7 +2367,7 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current"):
     return RPB
 
 
-def init_routine_1(blk, homotopy_steps=[1]):
+def init_routine_1(blk, homotopy_points=[1]):
     # create Block init object
     init_obj = BlockTriangularizationInitializer()
 
@@ -2336,8 +2397,8 @@ def init_routine_1(blk, homotopy_steps=[1]):
 
     init_obj.initialization_routine(blk)
 
-    for i in homotopy_steps:
-        print(f"homotopy step {i}")
+    for i in homotopy_points:
+        print(f"homotopy point {i}")
         blk.ads.R_MT_gas = i
         blk.des.R_MT_gas = i
         blk.ads.R_MT_coeff = i
@@ -2350,9 +2411,11 @@ def init_routine_1(blk, homotopy_steps=[1]):
         blk.des.R_delH = i
         init_obj.initialization_routine(blk)
 
+    print("full solve")
+
     solver = SolverFactory("ipopt")
     solver.options = {
-        "max_iter": 1000,
+        "max_iter": 500,
         "bound_push": 1e-22,
         "halt_on_ampl_error": "yes",
     }
