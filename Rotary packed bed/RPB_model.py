@@ -3,6 +3,7 @@ Created on Thu Feb 16 08:22:36 2023
 
 @author: ryank
 """
+
 # importing libraries
 import numpy as np
 import pandas as pd
@@ -2107,7 +2108,9 @@ def init_routine_1(blk, homotopy_points=[1]):
     init_obj.config.block_solver_call_options = {"tee": True}
     init_obj.config.block_solver_options = {
         # "halt_on_ampl_error": "yes",
-        "max_iter": 500,
+        "max_iter": 1000,
+        # "bound_push": 1e-22,
+        # "mu_init": 1e-3,
     }
 
     blk.ads.R_MT_gas = 1e-10
@@ -2120,10 +2123,6 @@ def init_routine_1(blk, homotopy_points=[1]):
     blk.des.R_HT_gs = 1e-10
     blk.ads.R_delH = 1e-10
     blk.des.R_delH = 1e-10
-
-    # turn on solids mass transfer (with the loadings connected at the rich and lean ends, solids mass transfer has to be turned on or no solution exists)
-    blk.ads.R_MT_solid = 1
-    blk.des.R_MT_solid = 1
 
     # run initialization routine
     print("DOF =", degrees_of_freedom(blk))
