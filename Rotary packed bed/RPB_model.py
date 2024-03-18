@@ -144,7 +144,11 @@ def RPB_model(mode, gas_flow_direction=1):
 
     @m.Expression(doc="bed rotational speed [radians/s]")
     def w(m):
-        return m.w_rpm * 2 * m.pi / 60
+        return (
+            m.w_rpm
+            * (2 * m.pi * units.radians / units.revolutions)
+            / (60 * units.sec / units.min)
+        )
 
     @m.Expression(doc="cross sectional area, total area*theta [m^2]")
     def A_c(m):
@@ -230,6 +234,7 @@ def RPB_model(mode, gas_flow_direction=1):
     m.Tg_out = Var(
         initialize=100 + 273.15,
         bounds=(25 + 273.15, 180 + 273.15),
+        units=units.K,
         doc="outlet gas temperature [K]",
     )
 
@@ -298,8 +303,8 @@ def RPB_model(mode, gas_flow_direction=1):
     m.k = Param(
         m.component_list,
         initialize=({"CO2": 0.020e-3, "N2": 0.030e-3, "H2O": 0.025e-3}),
-        units=units.kW / units.m / units.K,
-        doc="pure component gas phase thermal conductivity [kW/m/K]",
+        units=units.kJ / units.s / units.m / units.K,
+        doc="pure component gas phase thermal conductivity [kW/m/K, kJ/s/m/K]",
     )
 
     m.DmCO2 = Param(
@@ -350,6 +355,7 @@ def RPB_model(mode, gas_flow_direction=1):
     m.dheat_fluxdz = DerivativeVar(
         m.heat_flux,
         wrt=m.z,
+        units=units.kW / units.m**2,
         doc="axial derivative of heat flux [kW/m^2/dimensionless bed length]",
     )
 
@@ -359,6 +365,7 @@ def RPB_model(mode, gas_flow_direction=1):
         initialize=value(m.vel0),
         # domain=PositiveReals,
         bounds=(0, 5),
+        units=units.m / units.s,
         doc="superficial gas velocity [m/s], adsorption",
     )
 
@@ -376,6 +383,7 @@ def RPB_model(mode, gas_flow_direction=1):
         m.P,
         wrt=m.z,
         bounds=(-1, 1),
+        units=units.bar,
         doc="axial derivative of pressure [bar/dimensionless bed length]",
     )
 
@@ -391,6 +399,7 @@ def RPB_model(mode, gas_flow_direction=1):
     m.dFluxdz = DerivativeVar(
         m.Flux_kzo,
         wrt=m.z,
+        units=units.mol / units.m**2 / units.s,
         doc="axial derivative of component flux [mol/m^2 bed/s/dimensionless bed length]",
     )
 
@@ -412,7 +421,12 @@ def RPB_model(mode, gas_flow_direction=1):
         units=units.mol / units.kg,
     )
 
-    m.dqCO2do = DerivativeVar(m.qCO2, wrt=m.o, doc="theta derivative of loading")
+    m.dqCO2do = DerivativeVar(
+        m.qCO2,
+        wrt=m.o,
+        units=units.mol / units.kg,
+        doc="theta derivative of loading [mol/kg/dimensionless bed fraction]",
+    )
 
     m.Ts = Var(
         m.z,
@@ -427,6 +441,7 @@ def RPB_model(mode, gas_flow_direction=1):
     m.dTsdo = DerivativeVar(
         m.Ts,
         wrt=m.o,
+        units=units.K,
         doc="theta derivative of solid phase temp. [K/dimensionless bed fraction]",
     )
 
@@ -529,27 +544,43 @@ def RPB_model(mode, gas_flow_direction=1):
     def Cp_g_(k, Tg):
         if k == "H2O":
             return (
-                30.09200
-                + 6.832514 * Tg / 1000
-                + 6.793435 * (Tg / 1000) ** 2
-                + -2.534480 * (Tg / 1000) ** 3
-                + 0.082139 / (Tg / 1000) ** 2
+                30.09200 * units.kJ / units.mol / units.K
+                + 6.832514 * (Tg / units.K / 1000) * units.kJ / units.mol / units.K
+                + 6.793435 * (Tg / units.K / 1000) ** 2 * units.kJ / units.mol / units.K
+                + -2.534480
+                * (Tg / units.K / 1000) ** 3
+                * units.kJ
+                / units.mol
+                / units.K
+                + 0.082139 / (Tg / units.K / 1000) ** 2 * units.kJ / units.mol / units.K
             ) / 1000
         elif k == "N2":
             return (
-                28.98641
-                + 1.853978 * Tg / 1000
-                + -9.647459 * (Tg / 1000) ** 2
-                + 16.63537 * (Tg / 1000) ** 3
-                + 0.000117 / (Tg / 1000) ** 2
+                28.98641 * units.kJ / units.mol / units.K
+                + 1.853978 * (Tg / units.K / 1000) * units.kJ / units.mol / units.K
+                + -9.647459
+                * (Tg / units.K / 1000) ** 2
+                * units.kJ
+                / units.mol
+                / units.K
+                + 16.63537 * (Tg / units.K / 1000) ** 3 * units.kJ / units.mol / units.K
+                + 0.000117 / (Tg / units.K / 1000) ** 2 * units.kJ / units.mol / units.K
             ) / 1000
         elif k == "CO2":
             return (
-                24.99735
-                + 55.18696 * Tg / 1000
-                + -33.69137 * (Tg / 1000) ** 2
-                + 7.948387 * (Tg / 1000) ** 3
-                + -0.136638 / (Tg / 1000) ** 2
+                24.99735 * units.kJ / units.mol / units.K
+                + 55.18696 * (Tg / units.K / 1000) * units.kJ / units.mol / units.K
+                + -33.69137
+                * (Tg / units.K / 1000) ** 2
+                * units.kJ
+                / units.mol
+                / units.K
+                + 7.948387 * (Tg / units.K / 1000) ** 3 * units.kJ / units.mol / units.K
+                + -0.136638
+                / (Tg / units.K / 1000) ** 2
+                * units.kJ
+                / units.mol
+                / units.K
             ) / 1000
 
     @m.Expression(
@@ -559,7 +590,7 @@ def RPB_model(mode, gas_flow_direction=1):
         doc="pure component heat capacities, function of T [kJ/mol/K]",
     )
     def Cp_g(m, k, z, o):
-        return Cp_g_(k, m.Tg[z, o]) * units.kJ / units.mol / units.K
+        return Cp_g_(k, m.Tg[z, o])
 
     @m.Expression(m.z, m.o, doc="average molecular weight [kg/mol]")
     def AMW(m, z, o):
@@ -575,7 +606,7 @@ def RPB_model(mode, gas_flow_direction=1):
 
     @m.Expression(m.z, m.o, doc="gas phase mixture heat capacity [kJ/kg/K]")
     def Cp_g_mix_kg(m, z, o):
-        return m.AMW[z, o] * m.Cp_g_mix[z, o]
+        return m.Cp_g_mix[z, o] / m.AMW[z, o]
 
     @m.Expression(m.z, m.o, doc="gas phase mixture viscosity [Pa*s]")
     def mu_mix(m, z, o):
@@ -642,37 +673,37 @@ def RPB_model(mode, gas_flow_direction=1):
 
     # Isotherm model =======
     # Parameter values
-    q_inf_1 = 2.87e-02  # mmol/g == mol/kg
-    q_inf_2 = 1.95
-    q_inf_3 = 3.45
+    q_inf_1 = 2.87e-02 * units.mol / units.kg
+    q_inf_2 = 1.95 * units.mol / units.kg
+    q_inf_3 = 3.45 * units.mol / units.kg
 
-    d_inf_1 = 1670.31
-    d_inf_2 = 789.01
-    d_inf_3 = 10990.67
-    d_inf_4 = 0.28
+    d_inf_1 = 1670.31 / units.bar
+    d_inf_2 = 789.01 / units.bar
+    d_inf_3 = 10990.67 / units.bar
+    d_inf_4 = 0.28 / units.bar * units.mol / units.kg
 
-    E_1 = -76.15
-    E_2 = -77.44
-    E_3 = -194.48
-    E_4 = -6.76
+    E_1 = -76.15 * units.kJ / units.mol
+    E_2 = -77.44 * units.kJ / units.mol
+    E_3 = -194.48 * units.kJ / units.mol
+    E_4 = -6.76 * units.kJ / units.mol
 
     X_11 = 4.20e-02
-    X_21 = 2.97
+    X_21 = 2.97 * units.K
     X_12 = 7.74e-02
-    X_22 = 1.66
+    X_22 = 1.66 * units.K
 
-    # P_step_01 = 1.85e-03
-    # P_step_02 = 1.78e-02
-    ln_P0_1 = -6.2925  # ln(P_step_01)
-    ln_P0_2 = -4.0285  # ln(P_step_02)
+    P_step_01 = 1.85e-03 * units.bar
+    P_step_02 = 1.78e-02 * units.bar
+    ln_P0_1 = log(P_step_01 / units.bar)
+    ln_P0_2 = log(P_step_02 / units.bar)
 
-    H_step_1 = -99.64
-    H_step_2 = -78.19
+    H_step_1 = -99.64 * units.kJ / units.mol
+    H_step_2 = -78.19 * units.kJ / units.mol
 
     gamma_1 = 894.67
     gamma_2 = 95.22
 
-    T0 = 363.15
+    T0 = 363.15 * units.K
 
     # Model equations
     def d_1(T):
@@ -716,11 +747,17 @@ def RPB_model(mode, gas_flow_direction=1):
         doc="Partial pressure of CO2 at particle surface [bar] (ideal gas law)",
     )
     def P_surf(m, z, o):
-        return smooth_max(m.Cs_r[z, o]) * m.Rg * m.Ts[z, o]
+        # smooth max operator: max(0, x) = 0.5*(x + (x^2 + eps)^0.5)
+        eps = 1e-8
+        Cs_r_smooth_max = 0.5 * (
+            m.Cs_r[z, o]
+            + (m.Cs_r[z, o] ** 2 + eps * (units.mol / units.m**3) ** 2) ** 0.5
+        )
+        return Cs_r_smooth_max * m.Rg * m.Ts[z, o]
 
     @m.Expression(m.z, m.o, doc="log(Psurf)")
     def ln_Psurf(m, z, o):
-        return log(m.P_surf[z, o])
+        return log(m.P_surf[z, o] / units.bar)  # must make dimensionless
 
     @m.Expression(m.z, m.o, doc="weighting function term1: (ln_Psurf-ln_Pstep)/sigma")
     def iso_w_term1(m, z, o):
@@ -761,7 +798,11 @@ def RPB_model(mode, gas_flow_direction=1):
     # ======
 
     # internal mass transfer ===
-    m.C1 = Param(initialize=(2.562434e-12), doc="lumped MT parameter [m^2/K^0.5/s]")
+    m.C1 = Param(
+        initialize=(2.562434e-12),
+        units=units.m**2 / units.K**0.5 / units.s,
+        doc="lumped MT parameter [m^2/K^0.5/s]",
+    )
 
     @m.Expression(m.z, m.o, doc="effective diffusion in solids [m^2/s]")
     def Deff(m, z, o):
@@ -771,19 +812,19 @@ def RPB_model(mode, gas_flow_direction=1):
     def k_I(m, z, o):
         return (
             m.R_MT_coeff * (15 * m.ep * m.Deff[z, o] / m.rp**2)
-            + (1 - m.R_MT_coeff) * 0.001
+            + (1 - m.R_MT_coeff) * 0.001 / units.s
         )
 
     # ========
     # heat of adsorption ===
 
-    delH_a1 = 21.68
-    delH_a2 = 29.10
-    delH_b1 = 1.59
-    delH_b2 = 3.39
-    delH_1 = 98.76
-    delH_2 = 77.11
-    delH_3 = 21.25
+    delH_a1 = 21.68 * units.kg / units.mol
+    delH_a2 = 29.10 * units.kg / units.mol
+    delH_b1 = 1.59 * units.mol / units.kg
+    delH_b2 = 3.39 * units.mol / units.kg
+    delH_1 = 98.76 * units.kJ / units.mol
+    delH_2 = 77.11 * units.kJ / units.mol
+    delH_3 = 21.25 * units.kJ / units.mol
 
     @m.Expression(m.z, m.o, doc="heat of adsorption [kJ/mol]")
     def delH_CO2(m, z, o):
@@ -816,7 +857,11 @@ def RPB_model(mode, gas_flow_direction=1):
         return FL_1(z) - FL_2(z)
 
     m.Rs_CO2 = Var(
-        m.z, m.o, initialize=0, doc="solids mass transfer rate [mol/s/m^3 bed]"
+        m.z,
+        m.o,
+        initialize=0,
+        units=units.mol / units.s / units.m**3,
+        doc="solids mass transfer rate [mol/s/m^3 bed]",
     )
 
     @m.Constraint(m.z, m.o, doc="solids mass transfer rate [mol/s/m^3 bed]")
@@ -833,14 +878,14 @@ def RPB_model(mode, gas_flow_direction=1):
                 * m.rho_sol
             )
         else:
-            return m.Rs_CO2[z, o] == 0
+            return m.Rs_CO2[z, o] == 0 * units.mol / units.s / units.m**3
 
     @m.Expression(m.z, m.o, doc="gas mass transfer rate [mol/s/m^3 bed]")
     def Rg_CO2(m, z, o):
         if 0 < z < 1 and 0 < o < 1:  # no mass transfer at boundaries
             return m.Rs_CO2[z, o]  # option 2
         else:
-            return 0
+            return 0 * units.mol / units.s / units.m**3
 
     @m.Constraint(m.z, m.o, doc="gas and solid phase mass transfer continuity")
     def constr_MTcont(m, z, o):
@@ -856,9 +901,8 @@ def RPB_model(mode, gas_flow_direction=1):
             m.Rg_CO2[z,o] == m.k_f[z,o]*m.a_s*(m.C['CO2',z,o]-m.Cs_r[z,o])
 
         """
-        return (
-            m.Cs_r[z, o] * m.k_f[z, o] * m.a_s
-            == m.C["CO2", z, o] * m.k_f[z, o] * m.a_s - m.Rg_CO2[z, o]
+        return m.Cs_r[z, o] == m.C["CO2", z, o] - m.Rg_CO2[z, o] / (
+            m.k_f[z, o] * m.a_s
         )  # option 2b
 
     # heat transfer rates ===
@@ -867,6 +911,7 @@ def RPB_model(mode, gas_flow_direction=1):
         m.z,
         m.o,
         initialize=0,
+        units=units.kJ / units.s / units.m**3,
         doc="Gas-to-solid heat transfer rate [kW/m^3 bed or kJ/s/m^3 bed]",
     )
 
@@ -887,6 +932,7 @@ def RPB_model(mode, gas_flow_direction=1):
         m.z,
         m.o,
         initialize=0,
+        units=units.kJ / units.s / units.m**3,
         doc="Gas-to-HX heat transfer rate [kW/m^3 bed or kJ/s/m^3 bed]",
     )
 
@@ -904,7 +950,11 @@ def RPB_model(mode, gas_flow_direction=1):
             return m.Q_ghx[z, o] == 0
 
     m.Q_delH = Var(
-        m.z, m.o, initialize=0, doc="adsorption/desorption heat rate [kJ/s/m^3 bed]"
+        m.z,
+        m.o,
+        initialize=0,
+        units=units.kJ / units.s / units.m**3,
+        doc="adsorption/desorption heat rate [kJ/s/m^3 bed]",
     )
 
     @m.Constraint(m.z, m.o, doc="adsorption/desorption heat rate [kJ/s/m^3 bed]")
@@ -946,7 +996,7 @@ def RPB_model(mode, gas_flow_direction=1):
         if 0 < o < 1:
             return (1 - m.eb) * m.rho_sol * m.dqCO2do[z, o] * m.w == (
                 m.Rs_CO2[z, o] * m.R_MT_solid
-            ) * (2 * m.pi * m.theta)
+            ) * ((2 * m.pi * units.radians) * m.theta)
         elif o == 1:  # at solids exit, flux is zero
             return m.dqCO2do[z, o] == 0
         else:  # no balance at o=0, inlets are specified
@@ -974,7 +1024,7 @@ def RPB_model(mode, gas_flow_direction=1):
         if 0 < o < 1:
             return (1 - m.eb) * m.rho_sol * m.Cp_sol * m.w * m.dTsdo[z, o] == (
                 -m.Q_gs[z, o] - m.Q_delH[z, o]
-            ) * (2 * m.pi * m.theta)
+            ) * ((2 * m.pi * units.radians) * m.theta)
         elif o == 1:
             return m.dTsdo[z, o] == 0
         else:
@@ -982,14 +1032,15 @@ def RPB_model(mode, gas_flow_direction=1):
 
     @m.Constraint(m.z, m.o, doc="Ergun Equation [bar/m]")
     def pde_Ergun(m, z, o):
+        Pa_to_bar = 1e-5 * units.bar / units.Pa
         if gas_flow_direction == 1:
             if z > 0:
                 return m.dPdz[z, o] / m.L == m.R_dP * -(
-                    1e-5
+                    Pa_to_bar
                     * (150 * m.mu_mix[z, o] * ((1 - m.eb) ** 2) / (m.eb**3))
                     / m.dp**2
                     * m.vel[z, o]
-                    + 1e-5
+                    + Pa_to_bar
                     * 1.75
                     * (1 - m.eb)
                     / m.eb**3
@@ -1002,11 +1053,11 @@ def RPB_model(mode, gas_flow_direction=1):
         elif gas_flow_direction == -1:
             if z < 1:
                 return -m.dPdz[z, o] / m.L == m.R_dP * -(
-                    1e-5
+                    Pa_to_bar
                     * (150 * m.mu_mix[z, o] * ((1 - m.eb) ** 2) / (m.eb**3))
                     / m.dp**2
                     * m.vel[z, o]
-                    + 1e-5
+                    + Pa_to_bar
                     * 1.75
                     * (1 - m.eb)
                     / m.eb**3
@@ -1111,7 +1162,7 @@ def RPB_model(mode, gas_flow_direction=1):
 
     @m.Constraint(doc="eq. for calculating outlet gas temperature")
     def Tg_out_eq(m):
-        return m.Hg_out == m.F_out * m.Cp_g_out * m.Tg_out
+        return m.Hg_out / m.F_out == m.Cp_g_out * m.Tg_out
 
     # Metrics ==============
     @m.Expression(m.z, doc="inlet solids loading B.C. [mol/kg]")
@@ -1131,7 +1182,9 @@ def RPB_model(mode, gas_flow_direction=1):
     @m.Constraint(doc="CO2 capture fraction")
     def CO2_capture_eq(m):
         return (
-            m.CO2_capture * m.F_in == m.F_in - m.F_out * m.y_out["CO2"] / m.y_in["CO2"]
+            # m.CO2_capture * m.F_in == m.F_in - m.F_out * m.y_out["CO2"] / m.y_in["CO2"]
+            m.CO2_capture * m.F_in * m.y_in["CO2"]
+            == m.F_in * m.y_in["CO2"] - m.F_out * m.y_out["CO2"]
         )
 
     @m.Integral(
@@ -1185,7 +1238,11 @@ def RPB_model(mode, gas_flow_direction=1):
 
     @m.Expression(doc="total solids flow [kg/s]")
     def flow_solids_tot(m):
-        return m.mass_solids_tot * m.w_rpm / 60
+        return (
+            (m.mass_solids_tot / units.revolution)
+            * m.w_rpm
+            / (60 * units.sec / units.min)
+        )
 
     @m.Expression(m.z, doc="change in solids loading at each z index [mol/kg]")
     def delta_q(m, z):
@@ -1298,7 +1355,7 @@ def RPB_model(mode, gas_flow_direction=1):
     iscale.set_scaling_factor(m.bc_y_out["H2O"], 1 / value(m.y_in["H2O"]))
     iscale.set_scaling_factor(m.bc_y_out["N2"], 1 / value(m.y_in["N2"]))
     iscale.set_scaling_factor(m.bc_P_out, 10)
-    iscale.set_scaling_factor(m.Tg_out_eq, 1e-3)
+    # iscale.set_scaling_factor(m.Tg_out_eq, 1e-3)
     iscale.set_scaling_factor(m.Tg_out, 1e-2)
     iscale.set_scaling_factor(m.y_out["H2O"], 1 / value(m.y_in["H2O"]))
     iscale.set_scaling_factor(m.y_out["N2"], 1 / value(m.y_in["N2"]))
@@ -1348,13 +1405,13 @@ def RPB_model(mode, gas_flow_direction=1):
                 iscale.set_scaling_factor(m.dqCO2do[z, o], 1e-2)
                 iscale.set_scaling_factor(m.dqCO2do_disc_eq[z, o], 1e-2)
                 iscale.set_scaling_factor(m.pde_gasEB[z, o], 1e0)
-                iscale.set_scaling_factor(m.pde_solidEB[z, o], 1e-2)
+                iscale.set_scaling_factor(m.pde_solidEB[z, o], 1e2)
                 iscale.set_scaling_factor(m.pde_solidMB[z, o], 1e-3)
                 iscale.set_scaling_factor(m.dheat_fluxdz[z, o], 1e-2)
                 iscale.set_scaling_factor(m.dTsdo[z, o], 1e-1)
                 iscale.set_scaling_factor(m.dTsdo_disc_eq[z, o], 1e-1)
                 iscale.set_scaling_factor(m.pde_gasMB["CO2", z, o], 100)
-                iscale.set_scaling_factor(m.Q_gs_eq[z, o], 0.01)
+                iscale.set_scaling_factor(m.Q_gs_eq[z, o], 1)
                 iscale.set_scaling_factor(m.Q_gs[z, o], 0.01)
                 iscale.set_scaling_factor(m.Q_delH[z, o], 0.01)
                 iscale.set_scaling_factor(m.Q_delH_eq[z, o], 0.01)
@@ -2070,7 +2127,10 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current"):
 
     # metrics ===============================================
     RPB.steam_enthalpy = Param(
-        initialize=2257.92, mutable=True, doc="saturated steam enthalpy at 1 bar[kJ/kg]"
+        initialize=2257.92,
+        mutable=True,
+        units=units.kJ / units.kg,
+        doc="saturated steam enthalpy at 1 bar[kJ/kg]",
     )
 
     @RPB.Expression(doc="Steam energy [kW]")
@@ -2085,11 +2145,17 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current"):
 
     @RPB.Expression(doc="Energy requirement [MJ/kg CO2]")
     def energy_requirement(RPB):
-        return RPB.total_thermal_energy / RPB.ads.delta_CO2 / RPB.ads.MW["CO2"] * 1e-3
+        return units.convert(
+            RPB.total_thermal_energy / RPB.ads.delta_CO2 / RPB.ads.MW["CO2"],
+            to_units=units.MJ / units.kg,
+        )
 
     @RPB.Expression(doc="Productivity [kg CO2/h/m^3]")
     def productivity(RPB):
-        return RPB.ads.delta_CO2 * RPB.ads.MW["CO2"] * 3600 / RPB.ads.vol_tot
+        return units.convert(
+            RPB.ads.delta_CO2 * RPB.ads.MW["CO2"] / RPB.ads.vol_tot,
+            to_units=units.kg / units.h / units.m**3,
+        )
 
     # add scaling factors
     iscale.set_scaling_factor(RPB.theta_constraint, 1e2)
