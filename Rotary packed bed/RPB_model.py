@@ -41,108 +41,82 @@ from idaes.core.initialization.block_triangularization import (
     BlockTriangularizationInitializer,
 )
 
+from pyomo.common.config import ConfigBlock, ConfigValue
 
-# Creating pyomo model
-def RPB_model(mode, gas_flow_direction=1):
-    m = ConcreteModel()
 
-    z_bounds = (0, 1)
-    # z_init_points = (0.01, 0.99)
-    # z_init_points = tuple(np.linspace(0.01, 0.1, 5)) + tuple(np.linspace(0.9, 0.99, 5))
-    z_init_points = tuple(np.geomspace(0.01, 0.5, 9)[:-1]) + tuple(
-        (1 - np.geomspace(0.01, 0.5, 9))[::-1]
+# Creating upper level RPB block
+def RotaryPackedBed():
+    blk = ConcreteModel()
+
+    blk.CONFIG = ConfigBlock()
+
+    blk.CONFIG.declare(
+        "z_init_points",
+        ConfigValue(
+            default=tuple(np.geomspace(0.01, 0.5, 9)[:-1])
+            + tuple((1 - np.geomspace(0.01, 0.5, 9))[::-1]),
+            description="initial axial nodes",
+        ),
     )
-    # z_init_points = tuple(np.linspace(0, 0.1, 5)) + (0.99,)
-
-    o_bounds = (0, 1)
-    # o_init_points = tuple(np.linspace(0.0,0.01,5))+tuple(np.linspace(0.99,1,5))
-    # o_init_points = tuple(np.linspace(0.01, 0.1, 4)) + (0.99,)
-    # o_init_points = tuple(np.geomspace(0.01, 0.99, 10))
-    o_init_points = tuple(np.geomspace(0.005, 0.1, 8)) + tuple(
-        np.linspace(0.1, 0.995, 10)[1:]
+    blk.CONFIG.declare(
+        "z_disc_method",
+        ConfigValue(
+            default="Finite Difference", description="Axial discretization method"
+        ),
     )
-    # o_init_points = (0.01, 0.99)
-
-    m.z = ContinuousSet(
-        doc="axial nodes [dimensionless]",
-        bounds=z_bounds,
-        initialize=z_init_points,
+    blk.CONFIG.declare(
+        "z_nfe",
+        ConfigValue(
+            default=20, description="Number of finite elements for axial direction"
+        ),
     )
-
-    m.o = ContinuousSet(
-        doc="adsorption theta nodes [dimensionless]",
-        bounds=o_bounds,
-        initialize=o_init_points,
+    blk.CONFIG.declare(
+        "z_collocation_points",
+        ConfigValue(
+            default=2, description="Number of collocation points for axial direction"
+        ),
     )
 
-    z_disc_method = "Finite Difference"
-    o_disc_method = "Finite Difference"
-
-    z_finite_elements = 20  # also works for finite volume
-    o_finite_elements = 20  # also works for finite volume
-
-    z_Collpoints = 2  # may not be needed
-    o_Collpoints = 2  # may not be needed
-
-    # Model Constants
-
-    m.R = Param(
+    blk.R = Param(
         initialize=8.314e-3,
         units=units.kJ / units.mol / units.K,
         doc="gas constant [kJ/mol/K]",
     )
-    m.Rg = Param(
+    blk.Rg = Param(
         initialize=8.314e-5,
         units=units.m**3 * units.bar / units.K / units.mol,
         doc="gas constant [m^3*bar/K/mol]",
     )
-    m.pi = Param(initialize=3.14159, doc="Pi constant")
+    blk.pi = Param(initialize=3.14159, doc="Pi constant")
 
     # Initial/Inlet/Outlet Values
 
-    m.component_list = Set(initialize=["N2", "CO2", "H2O"], doc="List of components")
+    blk.component_list = Set(initialize=["N2", "CO2", "H2O"], doc="List of components")
 
-    m.ads_components = Set(
-        initialize=["CO2"], within=m.component_list, doc="list of adsorbing components"
+    blk.ads_components = Set(
+        initialize=["CO2"],
+        within=blk.component_list,
+        doc="list of adsorbing components",
     )
 
-    # ========================== Dimensions ========================================
-    m.D = Var(initialize=(10), units=units.m, doc="Bed diameter [m]")
-    m.D.fix()
+    # =========================== Dimensions =======================================
+    blk.D = Var(initialize=(10), units=units.m, doc="Bed diameter [m]")
+    blk.D.fix()
 
-    m.L = Var(initialize=(3), bounds=(0.1, 10.001), units=units.m, doc="Bed Length [m]")
-    m.L.fix()
+    blk.L = Var(
+        initialize=(3), bounds=(0.1, 10.001), units=units.m, doc="Bed Length [m]"
+    )
+    blk.L.fix()
 
-    if mode == "adsorption":
-        theta_0 = 0.75
-    elif mode == "desorption":
-        theta_0 = 0.25
-
-    m.theta = Var(initialize=(theta_0), bounds=(0.01, 0.99), doc="Fraction of bed [-]")
-    m.theta.fix()
-
-    m.w_rpm = Var(
+    blk.w_rpm = Var(
         initialize=(1),
         bounds=(0.00001, 2),
         units=units.revolutions / units.min,
         doc="bed rotational speed [revolutions/min]",
     )
-    m.w_rpm.fix()
+    blk.w_rpm.fix()
 
-    m.Hx_frac = Param(
-        initialize=(1 / 3),  # current assumption, HE takes up 1/3 of bed
-        mutable=True,
-        doc="fraction of total reactor volume occupied by the embedded"
-        "heat exchanger",
-    )
-
-    m.a_sp = Param(
-        initialize=(50),
-        units=units.m**2 / units.m**3,
-        doc="specific surface area for heat transfer [m^2/m^3]",
-    )
-
-    @m.Expression(doc="bed rotational speed [radians/s]")
+    @blk.Expression(doc="bed rotational speed [radians/s]")
     def w(m):
         return (
             m.w_rpm
@@ -150,31 +124,257 @@ def RPB_model(mode, gas_flow_direction=1):
             / (60 * units.sec / units.min)
         )
 
-    @m.Expression(doc="cross sectional area, total area*theta [m^2]")
+    # =========================== Solids Properties ================================
+    blk.eb = Param(initialize=(0.68), doc="bed voidage")
+    blk.ep = Param(initialize=(0.68), doc="particle porosity")
+    blk.dp = Param(initialize=(0.000525), units=units.m, doc="particle diameter [m]")
+    blk.Cp_sol = Param(
+        initialize=(1.457),
+        units=units.kJ / units.kg / units.K,
+        doc="solid heat capacity [kJ/kg/K]",
+    )
+    blk.rho_sol = Param(
+        initialize=(1144),
+        units=units.kg / units.m**3,
+        mutable=True,
+        doc="solid particle densitry [kg/m^3]",
+    )
+
+    @blk.Expression(doc="particle radius [m]")
+    def rp(m):
+        return m.dp / 2
+
+    @blk.Expression(
+        doc="specific particle area for mass transfer, bed voidage"
+        "included [m^2/m^3 bed]"
+    )
+    def a_s(m):
+        return 6 / m.dp * (1 - m.eb)
+
+    # Isotherm Parameter values
+    blk.q_inf_1 = Param(
+        initialize=2.87e-02, units=units.mol / units.kg, doc="isotherm parameter"
+    )
+    blk.q_inf_2 = Param(
+        initialize=1.95, units=units.mol / units.kg, doc="isotherm parameter"
+    )
+    blk.q_inf_3 = Param(
+        initialize=3.45, units=units.mol / units.kg, doc="isotherm parameter"
+    )
+
+    blk.d_inf_1 = Param(
+        initialize=1670.31, units=units.bar**-1, doc="isotherm parameter"
+    )
+    blk.d_inf_2 = Param(
+        initialize=789.01, units=units.bar**-1, doc="isotherm parameter"
+    )
+    blk.d_inf_3 = Param(
+        initialize=10990.67, units=units.bar**-1, doc="isotherm parameter"
+    )
+    blk.d_inf_4 = Param(
+        initialize=0.28,
+        units=units.bar * units.mol / units.kg,
+        doc="isotherm parameter",
+    )
+
+    blk.E_1 = Param(
+        initialize=-76.15, units=units.kJ / units.mol, doc="isotherm parameter"
+    )
+    blk.E_2 = Param(
+        initialize=-77.44, units=units.kJ / units.mol, doc="isotherm parameter"
+    )
+    blk.E_3 = Param(
+        initialize=-194.48, units=units.kJ / units.mol, doc="isotherm parameter"
+    )
+    blk.E_4 = Param(
+        initialize=-6.76, units=units.kJ / units.mol, doc="isotherm parameter"
+    )
+
+    blk.X_11 = Param(initialize=4.20e-2, doc="isotherm parameter")
+    blk.X_21 = Param(initialize=2.97, units=units.K, doc="isotherm parameter")
+    blk.X_12 = Param(initialize=7.74e-2, doc="isotherm parameter")
+    blk.X_22 = Param(initialize=1.66, units=units.K, doc="isotherm parameter")
+
+    blk.P_step_01 = Param(
+        initialize=1.85e-03, units=units.bar, doc="isotherm parameter"
+    )
+    blk.P_step_02 = Param(
+        initialize=1.78e-02, units=units.bar, doc="isotherm parameter"
+    )
+
+    @blk.Expression()
+    def ln_P0_1(m):
+        return log(m.P_step_01 / units.bar)
+
+    @blk.Expression()
+    def ln_P0_2(m):
+        return log(m.P_step_02 / units.bar)
+
+    blk.H_step_1 = Param(
+        initialize=-99.64, units=units.kJ / units.mol, doc="isotherm parameter"
+    )
+    blk.H_step_2 = Param(
+        initialize=-78.19, units=units.kJ / units.mol, doc="isotherm parameter"
+    )
+
+    blk.gamma_1 = Param(initialize=894.67, doc="isotherm parameter")
+    blk.gamma_2 = Param(initialize=95.22, doc="isotherm parameter")
+
+    blk.T0 = Param(initialize=363.15, units=units.K, doc="isotherm parameter")
+
+    # Mass transfer parameters
+    blk.C1 = Param(
+        initialize=(2.562434e-12),
+        units=units.m**2 / units.K**0.5 / units.s,
+        doc="lumped MT parameter [m^2/K^0.5/s]",
+    )
+
+    # heat of adsorption ===
+
+    blk.delH_a1 = Param(
+        initialize=21.68, units=units.kg / units.mol, doc="heat of adsorption parameter"
+    )
+    blk.delH_a2 = Param(
+        initialize=29.10, units=units.kg / units.mol, doc="heat of adsorption parameter"
+    )
+    blk.delH_b1 = Param(
+        initialize=1.59, units=units.mol / units.kg, doc="heat of adsorption parameter"
+    )
+    blk.delH_b2 = Param(
+        initialize=3.39, units=units.mol / units.kg, doc="heat of adsorption parameter"
+    )
+    blk.delH_1 = Param(
+        initialize=98.76, units=units.kJ / units.mol, doc="heat of adsorption parameter"
+    )
+    blk.delH_2 = Param(
+        initialize=77.11, units=units.kJ / units.mol, doc="heat of adsorption parameter"
+    )
+    blk.delH_3 = Param(
+        initialize=21.25, units=units.kJ / units.mol, doc="heat of adsorption parameter"
+    )
+
+    # ==============================================================================
+
+    # ========================== gas properties ====================================
+
+    blk.MW = Param(
+        blk.component_list,
+        initialize=({"CO2": 44.01e-3, "N2": 28.0134e-3, "H2O": 18.01528e-3}),
+        units=units.kg / units.mol,
+        doc="component molecular weight [kg/mol]",
+    )
+
+    blk.mu = Param(
+        blk.component_list,
+        initialize=({"CO2": 1.87e-5, "N2": 2.3e-5, "H2O": 1.26e-5}),
+        units=units.Pa * units.s,
+        doc="pure component gas phase viscosity [Pa*s]",
+    )
+
+    blk.k = Param(
+        blk.component_list,
+        initialize=({"CO2": 0.020e-3, "N2": 0.030e-3, "H2O": 0.025e-3}),
+        units=units.kJ / units.s / units.m / units.K,
+        doc="pure component gas phase thermal conductivity [kW/m/K, kJ/s/m/K]",
+    )
+
+    blk.DmCO2 = Param(
+        initialize=(5.3e-5),
+        units=units.m**2 / units.s,
+        doc="gas phase CO2 diffusivity [m^2/s]",
+    )
+
+    return blk
+
+
+def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
+    # get parent block
+    RPB = blk.parent_block()
+
+    blk.CONFIG = ConfigBlock()
+
+    blk.CONFIG.declare(
+        "gas_flow_direction",
+        ConfigValue(
+            default=gas_flow_direction,
+            description="gas flow direction, used for simulation of counter-current configuration",
+        ),
+    )
+
+    blk.o = ContinuousSet(
+        doc="adsorption theta nodes [dimensionless]",
+        bounds=(0, 1),
+        initialize=tuple(np.geomspace(0.005, 0.1, 8))
+        + tuple(np.linspace(0.1, 0.995, 10)[1:]),
+    )
+
+    if mode == "adsorption":
+        theta_0 = 0.75
+    elif mode == "desorption":
+        theta_0 = 0.25
+    else:
+        theta_0 = 0.5
+
+    blk.theta = Var(
+        initialize=(theta_0), bounds=(0.01, 0.99), doc="Fraction of bed [-]"
+    )
+    blk.theta.fix()
+
+    # embedded heat exchanger and area calculations
+    blk.Hx_frac = Param(
+        initialize=(1 / 3),  # current assumption, HE takes up 1/3 of bed
+        mutable=True,
+        doc="fraction of total reactor volume occupied by the embedded"
+        "heat exchanger",
+    )
+
+    blk.a_sp = Param(
+        initialize=(50),
+        units=units.m**2 / units.m**3,
+        doc="specific surface area for heat transfer [m^2/m^3]",
+    )
+
+    @blk.Expression(doc="cross sectional area, total area*theta [m^2]")
     def A_c(m):
         return m.pi * m.D**2 / 4 * m.theta
 
-    @m.Expression(doc="cross sectional area for flow [m^2]")
+    @blk.Expression(doc="cross sectional area for flow [m^2]")
     def A_b(m):
         return (1 - m.Hx_frac) * m.A_c  # current assumption, HE takes up 1/3 of bed
 
-    @m.Expression(doc="cross sectional area of the heat exchanger [m^2]")
+    @blk.Expression(doc="cross sectional area of the heat exchanger [m^2]")
     def Ahx(m):
         return m.Hx_frac * m.A_c
 
-    @m.Expression(doc="specific heat transfer area [m^2/m^3]")
+    @blk.Expression(doc="specific heat transfer area [m^2/m^3]")
+    def a_ht(m):  # current assumption, can update this later
+        return m.a_sp
+
+    @blk.Expression(doc="cross sectional area, total area*theta [m^2]")
+    def A_c(m):
+        return m.pi * m.D**2 / 4 * m.theta
+
+    @blk.Expression(doc="cross sectional area for flow [m^2]")
+    def A_b(m):
+        return (1 - m.Hx_frac) * m.A_c  # current assumption, HE takes up 1/3 of bed
+
+    @blk.Expression(doc="cross sectional area of the heat exchanger [m^2]")
+    def Ahx(m):
+        return m.Hx_frac * m.A_c
+
+    @blk.Expression(doc="specific heat transfer area [m^2/m^3]")
     def a_ht(m):  # current assumption, can update this later
         return m.a_sp
 
     # ============================ Gas Inlet =======================================
-    m.F_in = Var(
+    blk.F_in = Var(
         initialize=400,
         doc="Inlet adsorber gas flow [mol/s]",
         bounds=(0, None),
         units=units.mol / units.s,
     )
 
-    m.P_in = Var(
+    blk.P_in = Var(
         initialize=1.1,
         bounds=(1, 1.5),
         units=units.bar,
@@ -187,86 +387,64 @@ def RPB_model(mode, gas_flow_direction=1):
     elif mode == "desorption":
         Tg_in = 120 + 273
         y_in = {"CO2": 1e-5, "N2": 1e-3, "H2O": (1 - 1e-5 - 1e-3)}
+    else:
+        Tg_in = 90 + 273
+        y_in = {"CO2": 0.04, "N2": 0.87, "H2O": 0.09}
 
-    m.Tg_in = Var(initialize=Tg_in, units=units.K, doc="Inlet flue gas temperature [K]")
+    blk.Tg_in = Var(
+        initialize=Tg_in, units=units.K, doc="Inlet flue gas temperature [K]"
+    )
 
-    m.y_in = Var(
-        m.component_list,
+    blk.y_in = Var(
+        RPB.component_list,
         initialize=y_in,
         doc="inlet mole fraction",
     )
 
     # Inlet values for initialization
-    @m.Expression(doc="inlet total conc. [mol/m^3]")
+    @blk.Expression(doc="inlet total conc. [mol/m^3]")
     def C_tot_in(m):
         return m.P_in / m.Tg_in / m.Rg
 
-    @m.Expression(m.component_list, doc="inlet concentrations [mol/m^3]")
+    @blk.Expression(RPB.component_list, doc="inlet concentrations [mol/m^3]")
     def C_in(m, k):
         return m.y_in[k] * m.C_tot_in
 
-    @m.Expression(doc="inlet gas velocity, adsorption [m/s]")
+    @blk.Expression(doc="inlet gas velocity, adsorption [m/s]")
     def vel0(m):
         return m.F_in / m.C_tot_in / m.A_b
 
     # =========================== Gas Outlet =======================================
-    m.P_out = Var(
+    blk.P_out = Var(
         initialize=1.01325,
         bounds=(0.99, 1.2),
         units=units.bar,
         doc="Outlet adsorber pressure [bar]",
     )
 
-    m.F_out = Var(
-        initialize=m.F_in(),
+    blk.F_out = Var(
+        initialize=blk.F_in(),
         bounds=(0, None),
         units=units.mol / units.s,
         doc="Total gas outlet flow [mol/s]",
     )
 
-    m.y_out = Var(
-        m.component_list,
+    blk.y_out = Var(
+        RPB.component_list,
         bounds=(0, 1),
         initialize=y_in,
         doc="outlet mole fraction",
     )
 
-    m.Tg_out = Var(
+    blk.Tg_out = Var(
         initialize=100 + 273.15,
         bounds=(25 + 273.15, 180 + 273.15),
         units=units.K,
         doc="outlet gas temperature [K]",
     )
 
-    # =========================== Solids Properties ================================
-    m.eb = Param(initialize=(0.68), doc="bed voidage")
-    m.ep = Param(initialize=(0.68), doc="particle porosity")
-    m.dp = Param(initialize=(0.000525), units=units.m, doc="particle diameter [m]")
-    m.Cp_sol = Param(
-        initialize=(1.457),
-        units=units.kJ / units.kg / units.K,
-        doc="solid heat capacity [kJ/kg/K]",
-    )
-    m.rho_sol = Param(
-        initialize=(1144),
-        units=units.kg / units.m**3,
-        mutable=True,
-        doc="solid particle densitry [kg/m^3]",
-    )
-
-    @m.Expression(doc="particle radius [m]")
-    def rp(m):
-        return m.dp / 2
-
-    @m.Expression(
-        doc="specific particle area for mass transfer, bed voidage"
-        "included [m^2/m^3 bed]"
-    )
-    def a_s(m):
-        return 6 / m.dp * (1 - m.eb)
-
     # ======================== Heat exchanger ======================================
-    m.hgx = Param(
+    blk.hgx = Param(
         initialize=(25 * 1e-3),  # assumed value
         units=units.kW / units.m**2 / units.K,
         doc="heat exchanger heat transfer coeff. kW/m^2/K",
@@ -277,128 +455,99 @@ def RPB_model(mode, gas_flow_direction=1):
     elif mode == "desorption":
         Tx = 120 + 273
 
-    m.Tx = Var(
+    blk.Tx = Var(
         initialize=Tx,
         units=units.K,
         doc="heat exchange fluid temperature, constant [K]",
     )
-    m.Tx.fix()
-
-    # Section 1: Chemical and heat exchange properties
-
-    m.MW = Param(
-        m.component_list,
-        initialize=({"CO2": 44.01e-3, "N2": 28.0134e-3, "H2O": 18.01528e-3}),
-        units=units.kg / units.mol,
-        doc="component molecular weight [kg/mol]",
-    )
-
-    m.mu = Param(
-        m.component_list,
-        initialize=({"CO2": 1.87e-5, "N2": 2.3e-5, "H2O": 1.26e-5}),
-        units=units.Pa * units.s,
-        doc="pure component gas phase viscosity [Pa*s]",
-    )
-
-    m.k = Param(
-        m.component_list,
-        initialize=({"CO2": 0.020e-3, "N2": 0.030e-3, "H2O": 0.025e-3}),
-        units=units.kJ / units.s / units.m / units.K,
-        doc="pure component gas phase thermal conductivity [kW/m/K, kJ/s/m/K]",
-    )
-
-    m.DmCO2 = Param(
-        initialize=(5.3e-5),
-        units=units.m**2 / units.s,
-        doc="gas phase CO2 diffusivity [m^2/s]",
-    )
+    blk.Tx.fix()
 
     # Variable declaration
     # ============================== Gas Phase =====================================
-    m.Cs_r = Var(
-        m.z,
-        m.o,
-        initialize=value(m.C_in["CO2"]),
+    blk.Cs_r = Var(
+        RPB.z,
+        blk.o,
+        initialize=value(blk.C_in["CO2"]),
         # domain=NonNegativeReals,
         bounds=(0, 100),
         units=units.mol / units.m**3,
         doc="particle surface concentration of CO2 [mol/m^3]",
     )
 
-    m.y = Var(
-        m.component_list,
-        m.z,
-        m.o,
+    blk.y = Var(
+        RPB.component_list,
+        RPB.z,
+        blk.o,
         bounds=(0, 1),
         initialize=0.1,
         doc="gas phase mole fraction",
     )
 
-    m.Tg = Var(
-        m.z,
-        m.o,
-        initialize=m.Tg_in.value,
+    blk.Tg = Var(
+        RPB.z,
+        blk.o,
+        initialize=blk.Tg_in.value,
         # domain=PositiveReals,
         bounds=(25 + 273.15, 180 + 273.15),
         doc="Gas phase temperature [K]",
         units=units.K,
     )
 
-    m.heat_flux = Var(
-        m.z,
-        m.o,
+    blk.heat_flux = Var(
+        RPB.z,
+        blk.o,
         initialize=0,
         units=units.kJ / units.m**2 / units.s,
         doc="heat flux [kW/m^2 or kJ/s/m^2]",
     )
 
-    m.dheat_fluxdz = DerivativeVar(
-        m.heat_flux,
-        wrt=m.z,
+    blk.dheat_fluxdz = DerivativeVar(
+        blk.heat_flux,
+        wrt=RPB.z,
         units=units.kW / units.m**2,
         doc="axial derivative of heat flux [kW/m^2/dimensionless bed length]",
     )
 
-    m.vel = Var(
-        m.z,
-        m.o,
-        initialize=value(m.vel0),
+    blk.vel = Var(
+        RPB.z,
+        blk.o,
+        initialize=value(blk.vel0),
         # domain=PositiveReals,
         bounds=(0, 5),
         units=units.m / units.s,
         doc="superficial gas velocity [m/s], adsorption",
     )
 
-    m.P = Var(
-        m.z,
-        m.o,
-        initialize=m.P_in.value,
+    blk.P = Var(
+        RPB.z,
+        blk.o,
+        initialize=blk.P_in.value,
         # domain=PositiveReals,
         bounds=(0.99, 1.2),
         units=units.bar,
         doc="Gas Pressure [bar]",
     )
 
-    m.dPdz = DerivativeVar(
-        m.P,
-        wrt=m.z,
+    blk.dPdz = DerivativeVar(
+        blk.P,
+        wrt=RPB.z,
         bounds=(-1, 1),
         units=units.bar,
         doc="axial derivative of pressure [bar/dimensionless bed length]",
     )
 
-    m.Flux_kzo = Var(
-        m.component_list,
-        m.z,
-        m.o,
+    blk.Flux_kzo = Var(
+        RPB.component_list,
+        RPB.z,
+        blk.o,
         bounds=(-1000, 1000),
         units=units.mol / units.m**2 / units.s,
         doc="Gas phse component flux [mol/m^2/s]",
     )
 
-    m.dFluxdz = DerivativeVar(
-        m.Flux_kzo,
-        wrt=m.z,
+    blk.dFluxdz = DerivativeVar(
+        blk.Flux_kzo,
+        wrt=RPB.z,
         units=units.mol / units.m**2 / units.s,
         doc="axial derivative of component flux [mol/m^2 bed/s/dimensionless bed length]",
     )
@@ -411,9 +560,9 @@ def RPB_model(mode, gas_flow_direction=1):
         qCO2_in_init = 2.5
         Ts_in_init = 110 + 273
 
-    m.qCO2 = Var(
-        m.z,
-        m.o,
+    blk.qCO2 = Var(
+        RPB.z,
+        blk.o,
         initialize=qCO2_in_init,
         # within=NonNegativeReals,
         bounds=(0, 5),
@@ -421,16 +570,16 @@ def RPB_model(mode, gas_flow_direction=1):
         units=units.mol / units.kg,
     )
 
-    m.dqCO2do = DerivativeVar(
-        m.qCO2,
-        wrt=m.o,
+    blk.dqCO2do = DerivativeVar(
+        blk.qCO2,
+        wrt=blk.o,
         units=units.mol / units.kg,
         doc="theta derivative of loading [mol/kg/dimensionless bed fraction]",
     )
 
-    m.Ts = Var(
-        m.z,
-        m.o,
+    blk.Ts = Var(
+        RPB.z,
+        blk.o,
         initialize=Ts_in_init,
         # domain=PositiveReals,
         bounds=(25 + 273.15, 180 + 273.15),
@@ -438,109 +587,112 @@ def RPB_model(mode, gas_flow_direction=1):
         units=units.K,
     )
 
-    m.dTsdo = DerivativeVar(
-        m.Ts,
-        wrt=m.o,
+    blk.dTsdo = DerivativeVar(
+        blk.Ts,
+        wrt=blk.o,
         units=units.K,
         doc="theta derivative of solid phase temp. [K/dimensionless bed fraction]",
     )
 
     # Initialization factors ===
-    m.R_MT_gas = Var(
+    blk.R_MT_gas = Var(
         initialize=1, doc="init. factor for mass transfer in gas phase MB (0=off, 1=on)"
     )
-    m.R_MT_gas.fix()
+    blk.R_MT_gas.fix()
 
-    m.R_MT_solid = Var(
+    blk.R_MT_solid = Var(
         initialize=1,
         doc="init. factor for mass transfer in solid phase MB (0=off, 1=on)",
     )
-    m.R_MT_solid.fix()
+    blk.R_MT_solid.fix()
 
-    m.R_HT_gs = Var(
+    blk.R_HT_gs = Var(
         initialize=1, doc="init. factor for gas-to-solid heat transfer (0=off, 1=on)"
     )
-    m.R_HT_gs.fix()
+    blk.R_HT_gs.fix()
 
-    m.R_HT_ghx = Var(
+    blk.R_HT_ghx = Var(
         initialize=1, doc="init. factor for gas-to-HE heat transfer (0=off, 1=on)"
     )
-    m.R_HT_ghx.fix()
+    blk.R_HT_ghx.fix()
 
-    m.R_delH = Var(
+    blk.R_delH = Var(
         initialize=1, doc="init. factor for heat of adsorption (0=off, 1=on)"
     )
-    m.R_delH.fix()
+    blk.R_delH.fix()
 
-    m.R_dP = Var(initialize=1, doc="init. factor for pressure drop (0=off, 1=on)")
-    m.R_dP.fix()
+    blk.R_dP = Var(initialize=1, doc="init. factor for pressure drop (0=off, 1=on)")
+    blk.R_dP.fix()
 
-    m.R_MT_coeff = Var(
+    blk.R_MT_coeff = Var(
         initialize=1,
         doc="init. factor for the mass transfer coefficient (0=constant value, 1=model prediction)",
     )
-    m.R_MT_coeff.fix()
+    blk.R_MT_coeff.fix()
 
     # Section 2: Gas Equations, Gas Properties, Dimensionless Groups, and Variables related
 
-    m.C_tot = Var(
-        m.z,
-        m.o,
-        initialize=value(m.C_tot_in),
+    blk.C_tot = Var(
+        RPB.z,
+        blk.o,
+        initialize=value(blk.C_tot_in),
         bounds=(0, 100),
         doc="Total conc., [mol/m^3] (ideal gas law)",
         units=units.mol / units.m**3,
     )
 
-    @m.Constraint(
-        m.z, m.o, doc="total concentration equation (ideal gas law) [mol/m^3]"
+    @blk.Constraint(
+        RPB.z, blk.o, doc="total concentration equation (ideal gas law) [mol/m^3]"
     )
     def C_tot_eq(m, z, o):
         return m.C_tot[z, o] * m.Rg * m.Tg[z, o] == m.P[z, o]
 
-    @m.Expression(m.component_list, m.z, m.o, doc="gas species concentration [mol/m^3]")
+    @blk.Expression(
+        RPB.component_list, RPB.z, blk.o, doc="gas species concentration [mol/m^3]"
+    )
     def C(m, k, z, o):
         return m.y[k, z, o] * m.C_tot[z, o]
 
-    @m.Integral(
-        m.component_list,
-        m.z,
-        m.o,
-        wrt=m.o,
+    @blk.Integral(
+        RPB.component_list,
+        RPB.z,
+        blk.o,
+        wrt=blk.o,
         doc="Component flow integrated over theta, function of z [mol/s]",
     )
     def Flow_kz(m, k, z, o):
         return m.Flux_kzo[k, z, o] * m.A_b
 
-    m.Flow_z = Var(
-        m.z,
-        initialize=m.F_in(),
+    blk.Flow_z = Var(
+        RPB.z,
+        initialize=blk.F_in(),
         bounds=(0, None),
         units=units.mol / units.s,
         doc="Total flow integrated over theta, function of z [mol/s]",
     )
 
-    @m.Constraint(m.z, doc="Total flow integrated over theta, function of z [mol/s]")
+    @blk.Constraint(
+        RPB.z, doc="Total flow integrated over theta, function of z [mol/s]"
+    )
     def Flow_z_eq(m, z):
         return m.Flow_z[z] == sum(m.Flow_kz[k, z] for k in m.component_list)
 
-    m.y_kz = Var(
-        m.component_list,
-        m.z,
+    blk.y_kz = Var(
+        RPB.component_list,
+        RPB.z,
         initialize=0.1,
         bounds=(0, 1),
         doc="Component mole fraction integrated over theta, function of z [-]",
     )
 
-    @m.Constraint(
-        m.component_list,
-        m.z,
+    @blk.Constraint(
+        RPB.component_list,
+        RPB.z,
         doc="Component mole fraction integrated over theta, function of z [-]",
     )
     def y_kz_eq(m, k, z):
         return m.y_kz[k, z] * m.Flow_z[z] == m.Flow_kz[k, z]
 
-    # ======================== Gas properties ======================================
     def Cp_g_(k, Tg):
         if k == "H2O":
             return (
@@ -583,42 +735,42 @@ def RPB_model(mode, gas_flow_direction=1):
                 / units.K
             ) / 1000
 
-    @m.Expression(
-        m.component_list,
-        m.z,
-        m.o,
+    @blk.Expression(
+        RPB.component_list,
+        RPB.z,
+        blk.o,
         doc="pure component heat capacities, function of T [kJ/mol/K]",
     )
     def Cp_g(m, k, z, o):
         return Cp_g_(k, m.Tg[z, o])
 
-    @m.Expression(m.z, m.o, doc="average molecular weight [kg/mol]")
+    @blk.Expression(RPB.z, blk.o, doc="average molecular weight [kg/mol]")
     def AMW(m, z, o):
-        return sum([m.y[k, z, o] * m.MW[k] for k in m.component_list])
+        return sum([m.y[k, z, o] * m.MW[k] for k in RPB.component_list])
 
-    @m.Expression(m.z, m.o, doc="gas density [kg/m^3]")
+    @blk.Expression(RPB.z, blk.o, doc="gas density [kg/m^3]")
     def rhog(m, z, o):
         return m.AMW[z, o] * m.C_tot[z, o]
 
-    @m.Expression(m.z, m.o, doc="gas phase mixture heat capacity [kJ/mol/K]")
+    @blk.Expression(RPB.z, blk.o, doc="gas phase mixture heat capacity [kJ/mol/K]")
     def Cp_g_mix(m, z, o):
-        return sum([m.y[k, z, o] * m.Cp_g[k, z, o] for k in m.component_list])
+        return sum([m.y[k, z, o] * m.Cp_g[k, z, o] for k in RPB.component_list])
 
-    @m.Expression(m.z, m.o, doc="gas phase mixture heat capacity [kJ/kg/K]")
+    @blk.Expression(RPB.z, blk.o, doc="gas phase mixture heat capacity [kJ/kg/K]")
     def Cp_g_mix_kg(m, z, o):
         return m.Cp_g_mix[z, o] / m.AMW[z, o]
 
-    @m.Expression(m.z, m.o, doc="gas phase mixture viscosity [Pa*s]")
+    @blk.Expression(RPB.z, blk.o, doc="gas phase mixture viscosity [Pa*s]")
     def mu_mix(m, z, o):
         return sum(
-            [m.y[k, z, o] * m.mu[k] * m.MW[k] ** 0.5 for k in m.component_list]
-        ) / sum([m.y[k, z, o] * m.MW[k] ** 0.5 for k in m.component_list])
+            [m.y[k, z, o] * m.mu[k] * m.MW[k] ** 0.5 for k in RPB.component_list]
+        ) / sum([m.y[k, z, o] * m.MW[k] ** 0.5 for k in RPB.component_list])
 
-    @m.Expression(m.z, m.o, doc="gas mixture thermal conductivity [kW/m/K]")
+    @blk.Expression(RPB.z, blk.o, doc="gas mixture thermal conductivity [kW/m/K]")
     def k_mix(m, z, o):
-        return sum([m.y[k, z, o] * m.k[k] for k in m.component_list])
+        return sum([m.y[k, z, o] * m.k[k] for k in RPB.component_list])
 
-    @m.Constraint(m.z, m.o, doc="heat flux equation [kJ/s/m^2]")
+    @blk.Constraint(RPB.z, blk.o, doc="heat flux equation [kJ/s/m^2]")
     def heat_flux_eq(m, z, o):
         return (
             m.heat_flux[z, o]
@@ -627,15 +779,15 @@ def RPB_model(mode, gas_flow_direction=1):
 
     # Dimensionless groups ====
 
-    @m.Expression(m.z, m.o, doc="Prandtl number")
+    @blk.Expression(RPB.z, blk.o, doc="Prandtl number")
     def Pr(m, z, o):
         return m.mu_mix[z, o] * m.Cp_g_mix_kg[z, o] / m.k_mix[z, o]
 
-    @m.Expression(m.z, m.o, doc="Reynolds number")
+    @blk.Expression(RPB.z, blk.o, doc="Reynolds number")
     def Re(m, z, o):
         return m.rhog[z, o] * m.vel[z, o] * m.dp / m.mu_mix[z, o]
 
-    @m.Expression(m.z, m.o, doc="Schmidt number")
+    @blk.Expression(RPB.z, blk.o, doc="Schmidt number")
     def Sc(m, z, o):
         return m.mu_mix[z, o] / (m.rhog[z, o] * m.DmCO2)
 
@@ -644,13 +796,13 @@ def RPB_model(mode, gas_flow_direction=1):
         eps = 1e-6
         return 0.5 * (x + (x**2 + eps) ** 0.5)
 
-    @m.Expression(m.z, m.o, doc="Sherwood number")
+    @blk.Expression(RPB.z, blk.o, doc="Sherwood number")
     def Sh(m, z, o):
         return (
             2.0 + 0.6 * smooth_max(m.Re[z, o]) ** 0.33 * smooth_max(m.Sc[z, o]) ** 0.5
         )
 
-    @m.Expression(m.z, m.o, doc="Nusselt number")
+    @blk.Expression(RPB.z, blk.o, doc="Nusselt number")
     def Nu(m, z, o):
         return (
             2.0 + 1.1 * smooth_max(m.Re[z, o]) ** 0.6 * smooth_max(m.Pr[z, o]) ** 0.33
@@ -659,91 +811,55 @@ def RPB_model(mode, gas_flow_direction=1):
     # ===
 
     # Mass/Heat Transfer variables
-    @m.Expression(
-        m.z, m.o, doc="Gas-solid heat transfer coefficient  equation [kW/m^2/K]"
+    @blk.Expression(
+        RPB.z, blk.o, doc="Gas-solid heat transfer coefficient  equation [kW/m^2/K]"
     )
     def h_gs(m, z, o):
         return m.Nu[z, o] * m.k_mix[z, o] / m.dp
 
-    @m.Expression(m.z, m.o, doc="Gas phase film mass transfer coefficient [m/s]")
+    @blk.Expression(RPB.z, blk.o, doc="Gas phase film mass transfer coefficient [m/s]")
     def k_f(m, z, o):
         return m.Sh[z, o] * m.DmCO2 / m.dp
 
-    # ===
-
-    # Isotherm model =======
-    # Parameter values
-    q_inf_1 = 2.87e-02 * units.mol / units.kg
-    q_inf_2 = 1.95 * units.mol / units.kg
-    q_inf_3 = 3.45 * units.mol / units.kg
-
-    d_inf_1 = 1670.31 / units.bar
-    d_inf_2 = 789.01 / units.bar
-    d_inf_3 = 10990.67 / units.bar
-    d_inf_4 = 0.28 / units.bar * units.mol / units.kg
-
-    E_1 = -76.15 * units.kJ / units.mol
-    E_2 = -77.44 * units.kJ / units.mol
-    E_3 = -194.48 * units.kJ / units.mol
-    E_4 = -6.76 * units.kJ / units.mol
-
-    X_11 = 4.20e-02
-    X_21 = 2.97 * units.K
-    X_12 = 7.74e-02
-    X_22 = 1.66 * units.K
-
-    P_step_01 = 1.85e-03 * units.bar
-    P_step_02 = 1.78e-02 * units.bar
-    ln_P0_1 = log(P_step_01 / units.bar)
-    ln_P0_2 = log(P_step_02 / units.bar)
-
-    H_step_1 = -99.64 * units.kJ / units.mol
-    H_step_2 = -78.19 * units.kJ / units.mol
-
-    gamma_1 = 894.67
-    gamma_2 = 95.22
-
-    T0 = 363.15 * units.K
-
     # Model equations
     def d_1(T):
-        return d_inf_1 * exp(-E_1 / (m.R * T0) * (T0 / T - 1))
+        return RPB.d_inf_1 * exp(-RPB.E_1 / (RPB.R * RPB.T0) * (RPB.T0 / T - 1))
 
     def d_2(T):
-        return d_inf_2 * exp(-E_2 / (m.R * T0) * (T0 / T - 1))
+        return RPB.d_inf_2 * exp(-RPB.E_2 / (RPB.R * RPB.T0) * (RPB.T0 / T - 1))
 
     def d_3(T):
-        return d_inf_3 * exp(-E_3 / (m.R * T0) * (T0 / T - 1))
+        return RPB.d_inf_3 * exp(-RPB.E_3 / (RPB.R * RPB.T0) * (RPB.T0 / T - 1))
 
     def d_4(T):
-        return d_inf_4 * exp(-E_4 / (m.R * T0) * (T0 / T - 1))
+        return RPB.d_inf_4 * exp(-RPB.E_4 / (RPB.R * RPB.T0) * (RPB.T0 / T - 1))
 
     def sigma_1(T):
-        return X_11 * exp(X_21 * (1 / T0 - 1 / T))
+        return RPB.X_11 * exp(RPB.X_21 * (1 / RPB.T0 - 1 / T))
 
     def sigma_2(T):
-        return X_12 * exp(X_22 * (1 / T0 - 1 / T))
+        return RPB.X_12 * exp(RPB.X_22 * (1 / RPB.T0 - 1 / T))
 
     def ln_pstep1(T):
-        return ln_P0_1 + (-H_step_1 / m.R * (1 / T0 - 1 / T))
+        return RPB.ln_P0_1 + (-RPB.H_step_1 / RPB.R * (1 / RPB.T0 - 1 / T))
 
     def ln_pstep2(T):
-        return ln_P0_2 + (-H_step_2 / m.R * (1 / T0 - 1 / T))
+        return RPB.ln_P0_2 + (-RPB.H_step_2 / RPB.R * (1 / RPB.T0 - 1 / T))
 
     def q_star_1(P, T):
-        return q_inf_1 * d_1(T) * P / (1 + d_1(T) * P)
+        return RPB.q_inf_1 * d_1(T) * P / (1 + d_1(T) * P)
 
     def q_star_2(P, T):
-        return q_inf_2 * d_2(T) * P / (1 + d_2(T) * P)
+        return RPB.q_inf_2 * d_2(T) * P / (1 + d_2(T) * P)
 
     def q_star_3(P, T):
-        return q_inf_3 * d_3(T) * P / (1 + d_3(T) * P) + d_4(T) * P
+        return RPB.q_inf_3 * d_3(T) * P / (1 + d_3(T) * P) + d_4(T) * P
 
     # =============================================
 
-    @m.Expression(
-        m.z,
-        m.o,
+    @blk.Expression(
+        RPB.z,
+        blk.o,
         doc="Partial pressure of CO2 at particle surface [bar] (ideal gas law)",
     )
     def P_surf(m, z, o):
@@ -755,39 +871,43 @@ def RPB_model(mode, gas_flow_direction=1):
         )
         return Cs_r_smooth_max * m.Rg * m.Ts[z, o]
 
-    @m.Expression(m.z, m.o, doc="log(Psurf)")
+    @blk.Expression(RPB.z, blk.o, doc="log(Psurf)")
     def ln_Psurf(m, z, o):
         return log(m.P_surf[z, o] / units.bar)  # must make dimensionless
 
-    @m.Expression(m.z, m.o, doc="weighting function term1: (ln_Psurf-ln_Pstep)/sigma")
+    @blk.Expression(
+        RPB.z, blk.o, doc="weighting function term1: (ln_Psurf-ln_Pstep)/sigma"
+    )
     def iso_w_term1(m, z, o):
         return (m.ln_Psurf[z, o] - ln_pstep1(m.Ts[z, o])) / sigma_1(m.Ts[z, o])
 
-    @m.Expression(m.z, m.o, doc="weighting function term2: (ln_Psurf-ln_Pstep)/sigma")
+    @blk.Expression(
+        RPB.z, blk.o, doc="weighting function term2: (ln_Psurf-ln_Pstep)/sigma"
+    )
     def iso_w_term2(m, z, o):
         return (m.ln_Psurf[z, o] - ln_pstep2(m.Ts[z, o])) / sigma_2(m.Ts[z, o])
 
-    @m.Expression(m.z, m.o, doc="log of weighting function 1")
+    @blk.Expression(RPB.z, blk.o, doc="log of weighting function 1")
     def ln_w1(m, z, o):
         # return gamma_1*log(exp(m.iso_w_term1[z,o])/(1+exp(m.iso_w_term1[z,o])))
         # return gamma_1*(log(exp(m.iso_w_term1[z,o])) - log(1+exp(m.iso_w_term1[z,o])))
-        return gamma_1 * (m.iso_w_term1[z, o] - log(1 + exp(m.iso_w_term1[z, o])))
+        return RPB.gamma_1 * (m.iso_w_term1[z, o] - log(1 + exp(m.iso_w_term1[z, o])))
 
-    @m.Expression(m.z, m.o, doc="log of weighting function 2")
+    @blk.Expression(RPB.z, blk.o, doc="log of weighting function 2")
     def ln_w2(m, z, o):
         # return gamma_2*log(exp(m.iso_w_term2[z,o])/(1+exp(m.iso_w_term2[z,o])))
         # return gamma_2*(log(exp(m.iso_w_term2[z,o])) - log(1+exp(m.iso_w_term2[z,o])))
-        return gamma_2 * (m.iso_w_term2[z, o] - log(1 + exp(m.iso_w_term2[z, o])))
+        return RPB.gamma_2 * (m.iso_w_term2[z, o] - log(1 + exp(m.iso_w_term2[z, o])))
 
-    @m.Expression(m.z, m.o, doc="weighting function 1")
+    @blk.Expression(RPB.z, blk.o, doc="weighting function 1")
     def iso_w1(m, z, o):
         return exp(m.ln_w1[z, o])
 
-    @m.Expression(m.z, m.o, doc="weighting function 2")
+    @blk.Expression(RPB.z, blk.o, doc="weighting function 2")
     def iso_w2(m, z, o):
         return exp(m.ln_w2[z, o])
 
-    @m.Expression(m.z, m.o, doc="isotherm loading expression [mol/kg]")
+    @blk.Expression(RPB.z, blk.o, doc="isotherm loading expression [mol/kg]")
     def qCO2_eq(m, z, o):
         return (
             (1 - m.iso_w1[z, o]) * q_star_1(m.P_surf[z, o], m.Ts[z, o])
@@ -795,50 +915,32 @@ def RPB_model(mode, gas_flow_direction=1):
             + m.iso_w2[z, o] * q_star_3(m.P_surf[z, o], m.Ts[z, o])
         )
 
-    # ======
+    # Mass transfer coefficient
 
-    # internal mass transfer ===
-    m.C1 = Param(
-        initialize=(2.562434e-12),
-        units=units.m**2 / units.K**0.5 / units.s,
-        doc="lumped MT parameter [m^2/K^0.5/s]",
-    )
-
-    @m.Expression(m.z, m.o, doc="effective diffusion in solids [m^2/s]")
+    @blk.Expression(RPB.z, blk.o, doc="effective diffusion in solids [m^2/s]")
     def Deff(m, z, o):
         return m.C1 * m.Ts[z, o] ** 0.5
 
-    @m.Expression(m.z, m.o, doc="internal MT coeff. [1/s]")
+    @blk.Expression(RPB.z, blk.o, doc="internal MT coeff. [1/s]")
     def k_I(m, z, o):
         return (
             m.R_MT_coeff * (15 * m.ep * m.Deff[z, o] / m.rp**2)
             + (1 - m.R_MT_coeff) * 0.001 / units.s
         )
 
-    # ========
-    # heat of adsorption ===
+    # heat of adsorption
 
-    delH_a1 = 21.68 * units.kg / units.mol
-    delH_a2 = 29.10 * units.kg / units.mol
-    delH_b1 = 1.59 * units.mol / units.kg
-    delH_b2 = 3.39 * units.mol / units.kg
-    delH_1 = 98.76 * units.kJ / units.mol
-    delH_2 = 77.11 * units.kJ / units.mol
-    delH_3 = 21.25 * units.kJ / units.mol
-
-    @m.Expression(m.z, m.o, doc="heat of adsorption [kJ/mol]")
+    @blk.Expression(RPB.z, blk.o, doc="heat of adsorption [kJ/mol]")
     def delH_CO2(m, z, o):
         return -(
-            delH_1
-            - (delH_1 - delH_2)
-            * exp(delH_a1 * (m.qCO2_eq[z, o] - delH_b1))
-            / (1 + exp(delH_a1 * (m.qCO2_eq[z, o] - delH_b1)))
-            - (delH_2 - delH_3)
-            * exp(delH_a2 * (m.qCO2_eq[z, o] - delH_b2))
-            / (1 + exp(delH_a2 * (m.qCO2_eq[z, o] - delH_b2)))
+            RPB.delH_1
+            - (RPB.delH_1 - RPB.delH_2)
+            * exp(RPB.delH_a1 * (m.qCO2_eq[z, o] - RPB.delH_b1))
+            / (1 + exp(RPB.delH_a1 * (m.qCO2_eq[z, o] - RPB.delH_b1)))
+            - (RPB.delH_2 - RPB.delH_3)
+            * exp(RPB.delH_a2 * (m.qCO2_eq[z, o] - RPB.delH_b2))
+            / (1 + exp(RPB.delH_a2 * (m.qCO2_eq[z, o] - RPB.delH_b2)))
         )
-
-    # ===
 
     # mass transfer rates ===
 
@@ -856,15 +958,15 @@ def RPB_model(mode, gas_flow_direction=1):
 
         return FL_1(z) - FL_2(z)
 
-    m.Rs_CO2 = Var(
-        m.z,
-        m.o,
+    blk.Rs_CO2 = Var(
+        RPB.z,
+        blk.o,
         initialize=0,
         units=units.mol / units.s / units.m**3,
         doc="solids mass transfer rate [mol/s/m^3 bed]",
     )
 
-    @m.Constraint(m.z, m.o, doc="solids mass transfer rate [mol/s/m^3 bed]")
+    @blk.Constraint(RPB.z, blk.o, doc="solids mass transfer rate [mol/s/m^3 bed]")
     def Rs_CO2_eq(m, z, o):
         flux_lim = FL(z)
 
@@ -874,20 +976,20 @@ def RPB_model(mode, gas_flow_direction=1):
                 == flux_lim
                 * m.k_I[z, o]
                 * (m.qCO2_eq[z, o] - m.qCO2[z, o])
-                * (1 - m.eb)
-                * m.rho_sol
+                * (1 - RPB.eb)
+                * RPB.rho_sol
             )
         else:
             return m.Rs_CO2[z, o] == 0 * units.mol / units.s / units.m**3
 
-    @m.Expression(m.z, m.o, doc="gas mass transfer rate [mol/s/m^3 bed]")
+    @blk.Expression(RPB.z, blk.o, doc="gas mass transfer rate [mol/s/m^3 bed]")
     def Rg_CO2(m, z, o):
         if 0 < z < 1 and 0 < o < 1:  # no mass transfer at boundaries
             return m.Rs_CO2[z, o]  # option 2
         else:
             return 0 * units.mol / units.s / units.m**3
 
-    @m.Constraint(m.z, m.o, doc="gas and solid phase mass transfer continuity")
+    @blk.Constraint(RPB.z, blk.o, doc="gas and solid phase mass transfer continuity")
     def constr_MTcont(m, z, o):
         """
         Mass transfer continuity between the gas and solid phase. Used to calculate
@@ -902,42 +1004,42 @@ def RPB_model(mode, gas_flow_direction=1):
 
         """
         return m.Cs_r[z, o] == m.C["CO2", z, o] - m.Rg_CO2[z, o] / (
-            m.k_f[z, o] * m.a_s
+            m.k_f[z, o] * RPB.a_s
         )  # option 2b
 
     # heat transfer rates ===
 
-    m.Q_gs = Var(
-        m.z,
-        m.o,
+    blk.Q_gs = Var(
+        RPB.z,
+        blk.o,
         initialize=0,
         units=units.kJ / units.s / units.m**3,
         doc="Gas-to-solid heat transfer rate [kW/m^3 bed or kJ/s/m^3 bed]",
     )
 
-    @m.Constraint(
-        m.z, m.o, doc="Gas-to-solid heat transfer rate [kW/m^3 bed or kJ/s/m^3 bed]"
+    @blk.Constraint(
+        RPB.z, blk.o, doc="Gas-to-solid heat transfer rate [kW/m^3 bed or kJ/s/m^3 bed]"
     )
     def Q_gs_eq(m, z, o):
         flux_lim = FL(z)
 
         if 0 < z < 1 and 0 < o < 1:  # no heat transfer at boundaries
-            return m.Q_gs[z, o] == flux_lim * m.R_HT_gs * m.h_gs[z, o] * m.a_s * (
+            return m.Q_gs[z, o] == flux_lim * m.R_HT_gs * m.h_gs[z, o] * RPB.a_s * (
                 m.Ts[z, o] - m.Tg[z, o]
             )
         else:
             return m.Q_gs[z, o] == 0
 
-    m.Q_ghx = Var(
-        m.z,
-        m.o,
+    blk.Q_ghx = Var(
+        RPB.z,
+        blk.o,
         initialize=0,
         units=units.kJ / units.s / units.m**3,
         doc="Gas-to-HX heat transfer rate [kW/m^3 bed or kJ/s/m^3 bed]",
     )
 
-    @m.Constraint(
-        m.z, m.o, doc="Gas-to-HX heat transfer rate [kW/m^3 bed or kJ/s/m^3 bed]"
+    @blk.Constraint(
+        RPB.z, blk.o, doc="Gas-to-HX heat transfer rate [kW/m^3 bed or kJ/s/m^3 bed]"
     )
     def Q_ghx_eq(m, z, o):
         flux_lim = FL(z)
@@ -949,37 +1051,40 @@ def RPB_model(mode, gas_flow_direction=1):
         else:
             return m.Q_ghx[z, o] == 0
 
-    m.Q_delH = Var(
-        m.z,
-        m.o,
+    blk.Q_delH = Var(
+        RPB.z,
+        blk.o,
         initialize=0,
         units=units.kJ / units.s / units.m**3,
         doc="adsorption/desorption heat rate [kJ/s/m^3 bed]",
     )
 
-    @m.Constraint(m.z, m.o, doc="adsorption/desorption heat rate [kJ/s/m^3 bed]")
+    @blk.Constraint(RPB.z, blk.o, doc="adsorption/desorption heat rate [kJ/s/m^3 bed]")
     def Q_delH_eq(m, z, o):
         return m.Q_delH[z, o] == m.R_delH * m.delH_CO2[z, o] * m.Rs_CO2[z, o]
 
     # PDE equations, boundary conditions, and model constraints
-    @m.Constraint(
-        m.component_list, m.z, m.o, doc="gas phase species balance PDE [mol/m^3 bed/s]"
+    @blk.Constraint(
+        RPB.component_list,
+        RPB.z,
+        blk.o,
+        doc="gas phase species balance PDE [mol/m^3 bed/s]",
     )
     def pde_gasMB(m, k, z, o):
-        if gas_flow_direction == 1:
+        if blk.CONFIG.gas_flow_direction == 1:
             if 0 < z < 1:
                 if k == "CO2":
-                    return m.dFluxdz[k, z, o] == (-m.Rg_CO2[z, o] * m.R_MT_gas) * m.L
+                    return m.dFluxdz[k, z, o] == (-m.Rg_CO2[z, o] * m.R_MT_gas) * RPB.L
                 else:
                     return m.dFluxdz[k, z, o] == 0
             if z == 1:  # at exit of column, dFluxdz=0
                 return m.dFluxdz[k, z, o] == 0
             else:  # no balance at z=0, inlets are specified
                 return Constraint.Skip
-        elif gas_flow_direction == -1:
+        elif blk.CONFIG.gas_flow_direction == -1:
             if 0 < z < 1:
                 if k == "CO2":
-                    return -m.dFluxdz[k, z, o] == (-m.Rg_CO2[z, o] * m.R_MT_gas) * m.L
+                    return -m.dFluxdz[k, z, o] == (-m.Rg_CO2[z, o] * m.R_MT_gas) * RPB.L
                 else:
                     return -m.dFluxdz[k, z, o] == 0
             if z == 0:  # at exit of column, dFluxdz=0
@@ -987,14 +1092,16 @@ def RPB_model(mode, gas_flow_direction=1):
             else:  # no balance at z=0, inlets are specified
                 return Constraint.Skip
 
-    @m.Constraint(m.component_list, m.z, m.o, doc="flux equation [mol/m^2 bed/s]")
+    @blk.Constraint(
+        RPB.component_list, RPB.z, blk.o, doc="flux equation [mol/m^2 bed/s]"
+    )
     def flux_eq(m, k, z, o):
         return m.Flux_kzo[k, z, o] == m.C[k, z, o] * m.vel[z, o]
 
-    @m.Constraint(m.z, m.o, doc="solid phase mass balance PDE [mol/m^3 bed/s]")
+    @blk.Constraint(RPB.z, blk.o, doc="solid phase mass balance PDE [mol/m^3 bed/s]")
     def pde_solidMB(m, z, o):
         if 0 < o < 1:
-            return (1 - m.eb) * m.rho_sol * m.dqCO2do[z, o] * m.w == (
+            return (1 - RPB.eb) * RPB.rho_sol * m.dqCO2do[z, o] * RPB.w == (
                 m.Rs_CO2[z, o] * m.R_MT_solid
             ) * ((2 * m.pi * units.radians) * m.theta)
         elif o == 1:  # at solids exit, flux is zero
@@ -1002,184 +1109,173 @@ def RPB_model(mode, gas_flow_direction=1):
         else:  # no balance at o=0, inlets are specified
             return Constraint.Skip
 
-    @m.Constraint(m.z, m.o, doc="gas phase energy balance PDE [kJ/m^3 bed/s]")
+    @blk.Constraint(RPB.z, blk.o, doc="gas phase energy balance PDE [kJ/m^3 bed/s]")
     def pde_gasEB(m, z, o):
-        if gas_flow_direction == 1:
+        if blk.CONFIG.gas_flow_direction == 1:
             if 0 < z < 1:
-                return m.dheat_fluxdz[z, o] == (m.Q_gs[z, o] - m.Q_ghx[z, o]) * m.L
+                return m.dheat_fluxdz[z, o] == (m.Q_gs[z, o] - m.Q_ghx[z, o]) * RPB.L
             elif z == 1:
                 return m.dheat_fluxdz[z, o] == 0
             else:
                 return Constraint.Skip
-        elif gas_flow_direction == -1:
+        elif blk.CONFIG.gas_flow_direction == -1:
             if 0 < z < 1:
-                return -m.dheat_fluxdz[z, o] == (m.Q_gs[z, o] - m.Q_ghx[z, o]) * m.L
+                return -m.dheat_fluxdz[z, o] == (m.Q_gs[z, o] - m.Q_ghx[z, o]) * RPB.L
             elif z == 0:
                 return -m.dheat_fluxdz[z, o] == 0
             else:
                 return Constraint.Skip
 
-    @m.Constraint(m.z, m.o, doc="solid phase energy balance PDE [kJ/s/m^3 bed]")
+    @blk.Constraint(RPB.z, blk.o, doc="solid phase energy balance PDE [kJ/s/m^3 bed]")
     def pde_solidEB(m, z, o):
         if 0 < o < 1:
-            return (1 - m.eb) * m.rho_sol * m.Cp_sol * m.w * m.dTsdo[z, o] == (
+            return (1 - m.eb) * m.rho_sol * m.Cp_sol * RPB.w * m.dTsdo[z, o] == (
                 -m.Q_gs[z, o] - m.Q_delH[z, o]
-            ) * ((2 * m.pi * units.radians) * m.theta)
+            ) * ((2 * RPB.pi * units.radians) * m.theta)
         elif o == 1:
             return m.dTsdo[z, o] == 0
         else:
             return Constraint.Skip
 
-    @m.Constraint(m.z, m.o, doc="Ergun Equation [bar/m]")
+    @blk.Constraint(RPB.z, blk.o, doc="Ergun Equation [bar/m]")
     def pde_Ergun(m, z, o):
         Pa_to_bar = 1e-5 * units.bar / units.Pa
-        if gas_flow_direction == 1:
+        RHS = m.R_dP * -(
+            Pa_to_bar
+            * (150 * m.mu_mix[z, o] * ((1 - RPB.eb) ** 2) / (RPB.eb**3))
+            / RPB.dp**2
+            * m.vel[z, o]
+            + Pa_to_bar
+            * 1.75
+            * (1 - RPB.eb)
+            / RPB.eb**3
+            * m.rhog[z, o]
+            / RPB.dp
+            * m.vel[z, o] ** 2
+        )
+        if blk.CONFIG.gas_flow_direction == 1:
             if z > 0:
-                return m.dPdz[z, o] / m.L == m.R_dP * -(
-                    Pa_to_bar
-                    * (150 * m.mu_mix[z, o] * ((1 - m.eb) ** 2) / (m.eb**3))
-                    / m.dp**2
-                    * m.vel[z, o]
-                    + Pa_to_bar
-                    * 1.75
-                    * (1 - m.eb)
-                    / m.eb**3
-                    * m.rhog[z, o]
-                    / m.dp
-                    * m.vel[z, o] ** 2
-                )
+                return m.dPdz[z, o] / RPB.L == RHS
             else:
                 return Constraint.Skip
-        elif gas_flow_direction == -1:
+        elif blk.CONFIG.gas_flow_direction == -1:
             if z < 1:
-                return -m.dPdz[z, o] / m.L == m.R_dP * -(
-                    Pa_to_bar
-                    * (150 * m.mu_mix[z, o] * ((1 - m.eb) ** 2) / (m.eb**3))
-                    / m.dp**2
-                    * m.vel[z, o]
-                    + Pa_to_bar
-                    * 1.75
-                    * (1 - m.eb)
-                    / m.eb**3
-                    * m.rhog[z, o]
-                    / m.dp
-                    * m.vel[z, o] ** 2
-                )
+                return -m.dPdz[z, o] / RPB.L == RHS
             else:
                 return Constraint.Skip
 
-    @m.Constraint(m.z, m.o, doc="mole fraction summation")
+    @blk.Constraint(RPB.z, blk.o, doc="mole fraction summation")
     def mole_frac_sum(m, z, o):
-        if gas_flow_direction == 1:
+        if blk.CONFIG.gas_flow_direction == 1:
             if z > 0:
-                return sum([m.y[k, z, o] for k in m.component_list]) == 1
+                return sum([m.y[k, z, o] for k in RPB.component_list]) == 1
             else:
                 return Constraint.Skip
-        elif gas_flow_direction == -1:
+        elif blk.CONFIG.gas_flow_direction == -1:
             if z < 1:
-                return sum([m.y[k, z, o] for k in m.component_list]) == 1
+                return sum([m.y[k, z, o] for k in RPB.component_list]) == 1
             else:
                 return Constraint.Skip
 
     # Boundary Conditions ===
 
-    if gas_flow_direction == 1:
+    if blk.CONFIG.gas_flow_direction == 1:
 
-        @m.Constraint(m.o, doc="inlet gas temp. B.C. [K]")
+        @blk.Constraint(blk.o, doc="inlet gas temp. B.C. [K]")
         def bc_gastemp_in(m, o):
             return m.Tg[0, o] == m.Tg_in
 
-        @m.Constraint(m.o, doc="inlet pressure [bar]")
+        @blk.Constraint(blk.o, doc="inlet pressure [bar]")
         def bc_P_in(m, o):
             return m.P[0, o] == m.P_in
 
-        @m.Constraint(doc="inlet flow B.C. [mol/s]")
+        @blk.Constraint(doc="inlet flow B.C. [mol/s]")
         def bc_flow_in(m):
             return m.Flow_z[0] == m.F_in
 
-        @m.Constraint(m.component_list, m.o, doc="inlet mole fraction B.C. [-]")
+        @blk.Constraint(RPB.component_list, blk.o, doc="inlet mole fraction B.C. [-]")
         def bc_y_in(m, k, o):
             return m.y[k, 0, o] == m.y_in[k]
 
-    elif gas_flow_direction == -1:
+    elif blk.CONFIG.gas_flow_direction == -1:
 
-        @m.Constraint(m.o, doc="inlet gas temp. B.C. [K]")
+        @blk.Constraint(blk.o, doc="inlet gas temp. B.C. [K]")
         def bc_gastemp_in(m, o):
             return m.Tg[1, o] == m.Tg_in
 
-        @m.Constraint(m.o, doc="inlet pressure [bar]")
+        @blk.Constraint(blk.o, doc="inlet pressure [bar]")
         def bc_P_in(m, o):
             return m.P[1, o] == m.P_in
 
-        @m.Constraint(doc="inlet flow B.C. [mol/s]")
+        @blk.Constraint(doc="inlet flow B.C. [mol/s]")
         def bc_flow_in(m):
             return m.Flow_z[1] == m.F_in
 
-        @m.Constraint(m.component_list, m.o, doc="inlet mole fraction B.C. [-]")
+        @blk.Constraint(RPB.component_list, blk.o, doc="inlet mole fraction B.C. [-]")
         def bc_y_in(m, k, o):
             return m.y[k, 1, o] == m.y_in[k]
 
     # Outlet values ==========
     if gas_flow_direction == 1:
 
-        @m.Integral(m.o, wrt=m.o, doc="outlet gas enthalpy [kJ/mol]")
+        @blk.Integral(blk.o, wrt=blk.o, doc="outlet gas enthalpy [kJ/mol]")
         def Hg_out(m, o):
             return m.heat_flux[1, o] * m.A_b
 
-        @m.Constraint(doc="Outlet flow B.C.")
+        @blk.Constraint(doc="Outlet flow B.C.")
         def bc_flow_out(m):
             return m.F_out == m.Flow_z[1]
 
-        @m.Constraint(m.component_list, doc="Outlet mole fraction B.C.")
+        @blk.Constraint(RPB.component_list, doc="Outlet mole fraction B.C.")
         def bc_y_out(m, k):
             return m.y_out[k] == m.y_kz[k, 1]
 
-        @m.Constraint(m.o, doc="outlet pressure B.C. [bar]")
+        @blk.Constraint(blk.o, doc="outlet pressure B.C. [bar]")
         def bc_P_out(m, o):
             return m.P[1, o] == m.P_out
 
     elif gas_flow_direction == -1:
 
-        @m.Integral(m.o, wrt=m.o, doc="outlet gas enthalpy [kJ/mol]")
+        @blk.Integral(blk.o, wrt=blk.o, doc="outlet gas enthalpy [kJ/mol]")
         def Hg_out(m, o):
             return m.heat_flux[0, o] * m.A_b
 
-        @m.Constraint(doc="Outlet flow B.C.")
+        @blk.Constraint(doc="Outlet flow B.C.")
         def bc_flow_out(m):
             return m.F_out == m.Flow_z[0]
 
-        @m.Constraint(m.component_list, doc="Outlet mole fraction B.C.")
+        @blk.Constraint(RPB.component_list, doc="Outlet mole fraction B.C.")
         def bc_y_out(m, k):
             return m.y_out[k] == m.y_kz[k, 0]
 
-        @m.Constraint(m.o, doc="outlet pressure B.C. [bar]")
+        @blk.Constraint(blk.o, doc="outlet pressure B.C. [bar]")
         def bc_P_out(m, o):
             return m.P[0, o] == m.P_out
 
-    @m.Expression(doc="outlet gas heat capacity [kJ/mol/K]")
+    @blk.Expression(doc="outlet gas heat capacity [kJ/mol/K]")
     def Cp_g_out(m):
-        return sum([m.y_out[k] * Cp_g_(k, m.Tg_out) for k in m.component_list])
+        return sum([m.y_out[k] * Cp_g_(k, m.Tg_out) for k in RPB.component_list])
 
-    @m.Constraint(doc="eq. for calculating outlet gas temperature")
+    @blk.Constraint(doc="eq. for calculating outlet gas temperature")
     def Tg_out_eq(m):
         return m.Hg_out / m.F_out == m.Cp_g_out * m.Tg_out
 
     # Metrics ==============
-    @m.Expression(m.z, doc="inlet solids loading B.C. [mol/kg]")
+    @blk.Expression(RPB.z, doc="inlet solids loading B.C. [mol/kg]")
     def qCO2_in(m, z):
         return m.qCO2[z, 0]
 
-    @m.Expression(m.z, doc="inlet solids temp. [K]")
+    @blk.Expression(RPB.z, doc="inlet solids temp. [K]")
     def Ts_in(m, z):
         return m.Ts[z, 0]
 
-    @m.Expression(doc="CO2 captured [mol/s]")
+    @blk.Expression(doc="CO2 captured [mol/s]")
     def delta_CO2(m):
         return m.F_in * m.y_in["CO2"] - m.F_out * m.y_out["CO2"]
 
-    m.CO2_capture = Var(initialize=0.5, doc="CO2 capture fraction")
+    blk.CO2_capture = Var(initialize=0.5, doc="CO2 capture fraction")
 
-    @m.Constraint(doc="CO2 capture fraction")
+    @blk.Constraint(doc="CO2 capture fraction")
     def CO2_capture_eq(m):
         return (
             # m.CO2_capture * m.F_in == m.F_in - m.F_out * m.y_out["CO2"] / m.y_in["CO2"]
@@ -1187,28 +1283,28 @@ def RPB_model(mode, gas_flow_direction=1):
             == m.F_in * m.y_in["CO2"] - m.F_out * m.y_out["CO2"]
         )
 
-    @m.Integral(
-        m.z,
-        m.o,
-        wrt=m.o,
+    @blk.Integral(
+        RPB.z,
+        blk.o,
+        wrt=blk.o,
         doc="Gas to HX heat transfer integrated over theta, function of z [kW/m^3 bed]",
     )
     def Q_ghx_z(m, z, o):
         return m.Q_ghx[z, o]
 
-    @m.Integral(
-        m.z,
-        wrt=m.z,
+    @blk.Integral(
+        RPB.z,
+        wrt=RPB.z,
         doc="Gas to HX heat transfer integrated over z, [kW/m^3 bed]",
     )
     def Q_ghx_tot(m, z):
         return m.Q_ghx_z[z]
 
-    @m.Expression(doc="section bed volume [m^3 bed]")
+    @blk.Expression(doc="section bed volume [m^3 bed]")
     def bed_vol_section(m):
         return m.pi * (m.D / 2) ** 2 * m.L * (1 - m.Hx_frac) * m.theta
 
-    @m.Expression(doc="Total heat transfer to HX [kW]")
+    @blk.Expression(doc="Total heat transfer to HX [kW]")
     def Q_ghx_tot_kW(m):
         return m.Q_ghx_tot * m.bed_vol_section
 
@@ -1216,47 +1312,49 @@ def RPB_model(mode, gas_flow_direction=1):
 
     # Mass and energy balance checks
 
-    @m.Expression(m.component_list, doc="component gas flow in for MB check [mol/s]")
+    @blk.Expression(
+        RPB.component_list, doc="component gas flow in for MB check [mol/s]"
+    )
     def g_k_in_MB(m, k):
         return m.F_in * m.y_in[k]
 
-    @m.Expression(m.component_list, doc="gas flow out for MB check [mol/s]")
+    @blk.Expression(RPB.component_list, doc="gas flow out for MB check [mol/s]")
     def g_k_out_MB(m, k):
         return m.F_out * m.y_out[k]
 
-    @m.Expression(doc="total bed volume [m^3]")
+    @blk.Expression(doc="total bed volume [m^3]")
     def vol_tot(m):
         return m.pi * (m.D / 2) ** 2 * m.L * (1 - m.Hx_frac)
 
-    @m.Expression(doc="total solids volume [m^3]")
+    @blk.Expression(doc="total solids volume [m^3]")
     def vol_solids_tot(m):
         return m.vol_tot * (1 - m.eb)
 
-    @m.Expression(doc="total solids mass [kg]")
+    @blk.Expression(doc="total solids mass [kg]")
     def mass_solids_tot(m):
         return m.vol_solids_tot * m.rho_sol
 
-    @m.Expression(doc="total solids flow [kg/s]")
+    @blk.Expression(doc="total solids flow [kg/s]")
     def flow_solids_tot(m):
         return (
             (m.mass_solids_tot / units.revolution)
-            * m.w_rpm
+            * RPB.w_rpm
             / (60 * units.sec / units.min)
         )
 
-    @m.Expression(m.z, doc="change in solids loading at each z index [mol/kg]")
+    @blk.Expression(RPB.z, doc="change in solids loading at each z index [mol/kg]")
     def delta_q(m, z):
         return m.qCO2[z, 1] - m.qCO2[z, 0]
 
-    @m.Integral(m.z, wrt=m.z, doc="total flow of adsorbed CO2 at inlet [mol/s]")
+    @blk.Integral(RPB.z, wrt=RPB.z, doc="total flow of adsorbed CO2 at inlet [mol/s]")
     def flow_CO2solids_in(m, z):
         return m.qCO2[z, 0] * m.flow_solids_tot
 
-    @m.Integral(m.z, wrt=m.z, doc="total flow of adsorbed CO2 at outlet [mol/s]")
+    @blk.Integral(RPB.z, wrt=RPB.z, doc="total flow of adsorbed CO2 at outlet [mol/s]")
     def flow_CO2solids_out(m, z):
         return m.qCO2[z, 1] * m.flow_solids_tot
 
-    @m.Expression(m.component_list, doc="% mass balance error for each component")
+    @blk.Expression(RPB.component_list, doc="% mass balance error for each component")
     def MB_error(m, k):
         if k == "CO2":
             return (
@@ -1273,28 +1371,28 @@ def RPB_model(mode, gas_flow_direction=1):
 
     # miscellaneous
 
-    @m.Integral(
-        m.z,
-        m.o,
-        wrt=m.z,
+    @blk.Integral(
+        RPB.z,
+        blk.o,
+        wrt=RPB.z,
         doc="solids CO2 loading integrated over z, function of theta [mol/kg]",
     )
     def qCO2_o(m, z, o):
         return m.qCO2[z, o]
 
-    @m.Integral(
-        m.z,
-        m.o,
-        wrt=m.z,
+    @blk.Integral(
+        RPB.z,
+        blk.o,
+        wrt=RPB.z,
         doc="solids temperature integrated over z, function of theta [K]",
     )
     def Ts_o(m, z, o):
         return m.Ts[z, o]
 
-    @m.Integral(
-        m.z,
-        m.o,
-        wrt=m.o,
+    @blk.Integral(
+        RPB.z,
+        blk.o,
+        wrt=blk.o,
         doc="gas temperature integrated over theta, function of z [K]",
     )
     def Tg_z(m, z, o):
