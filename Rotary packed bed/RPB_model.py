@@ -301,6 +301,20 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
         ),
     )
 
+    blk.CONFIG.declare(
+        "o_nfe", ConfigValue(default=20, description="Number of o finite elements")
+    )
+
+    blk.CONFIG.declare(
+        "o_collocation_points",
+        ConfigValue(default=2, description="Number of o collocation points"),
+    )
+
+    blk.CONFIG.declare(
+        "o_disc_method",
+        ConfigValue(default="Finite Difference", description="o discretization method"),
+    )
+
     blk.z = ContinuousSet(
         doc="axial dimension [dimensionless]",
         bounds=(0, 1),
@@ -342,23 +356,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
 
     @blk.Expression(doc="cross sectional area, total area*theta [m^2]")
     def A_c(m):
-        return m.pi * m.D**2 / 4 * m.theta
-
-    @blk.Expression(doc="cross sectional area for flow [m^2]")
-    def A_b(m):
-        return (1 - m.Hx_frac) * m.A_c  # current assumption, HE takes up 1/3 of bed
-
-    @blk.Expression(doc="cross sectional area of the heat exchanger [m^2]")
-    def Ahx(m):
-        return m.Hx_frac * m.A_c
-
-    @blk.Expression(doc="specific heat transfer area [m^2/m^3]")
-    def a_ht(m):  # current assumption, can update this later
-        return m.a_sp
-
-    @blk.Expression(doc="cross sectional area, total area*theta [m^2]")
-    def A_c(m):
-        return m.pi * m.D**2 / 4 * m.theta
+        return RPB.pi * RPB.D**2 / 4 * m.theta
 
     @blk.Expression(doc="cross sectional area for flow [m^2]")
     def A_b(m):
@@ -410,7 +408,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
     # Inlet values for initialization
     @blk.Expression(doc="inlet total conc. [mol/m^3]")
     def C_tot_in(m):
-        return m.P_in / m.Tg_in / m.Rg
+        return m.P_in / m.Tg_in / RPB.Rg
 
     @blk.Expression(RPB.component_list, doc="inlet concentrations [mol/m^3]")
     def C_in(m, k):
@@ -651,7 +649,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
         blk.z, blk.o, doc="total concentration equation (ideal gas law) [mol/m^3]"
     )
     def C_tot_eq(m, z, o):
-        return m.C_tot[z, o] * m.Rg * m.Tg[z, o] == m.P[z, o]
+        return m.C_tot[z, o] * RPB.Rg * m.Tg[z, o] == m.P[z, o]
 
     @blk.Expression(
         RPB.component_list, blk.z, blk.o, doc="gas species concentration [mol/m^3]"
@@ -681,7 +679,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
         blk.z, doc="Total flow integrated over theta, function of z [mol/s]"
     )
     def Flow_z_eq(m, z):
-        return m.Flow_z[z] == sum(m.Flow_kz[k, z] for k in m.component_list)
+        return m.Flow_z[z] == sum(m.Flow_kz[k, z] for k in RPB.component_list)
 
     blk.y_kz = Var(
         RPB.component_list,
@@ -752,7 +750,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
 
     @blk.Expression(blk.z, blk.o, doc="average molecular weight [kg/mol]")
     def AMW(m, z, o):
-        return sum([m.y[k, z, o] * m.MW[k] for k in RPB.component_list])
+        return sum([m.y[k, z, o] * RPB.MW[k] for k in RPB.component_list])
 
     @blk.Expression(blk.z, blk.o, doc="gas density [kg/m^3]")
     def rhog(m, z, o):
@@ -769,12 +767,12 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
     @blk.Expression(blk.z, blk.o, doc="gas phase mixture viscosity [Pa*s]")
     def mu_mix(m, z, o):
         return sum(
-            [m.y[k, z, o] * m.mu[k] * m.MW[k] ** 0.5 for k in RPB.component_list]
-        ) / sum([m.y[k, z, o] * m.MW[k] ** 0.5 for k in RPB.component_list])
+            [m.y[k, z, o] * RPB.mu[k] * RPB.MW[k] ** 0.5 for k in RPB.component_list]
+        ) / sum([m.y[k, z, o] * RPB.MW[k] ** 0.5 for k in RPB.component_list])
 
     @blk.Expression(blk.z, blk.o, doc="gas mixture thermal conductivity [kW/m/K]")
     def k_mix(m, z, o):
-        return sum([m.y[k, z, o] * m.k[k] for k in RPB.component_list])
+        return sum([m.y[k, z, o] * RPB.k[k] for k in RPB.component_list])
 
     @blk.Constraint(blk.z, blk.o, doc="heat flux equation [kJ/s/m^2]")
     def heat_flux_eq(m, z, o):
@@ -791,11 +789,11 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
 
     @blk.Expression(blk.z, blk.o, doc="Reynolds number")
     def Re(m, z, o):
-        return m.rhog[z, o] * m.vel[z, o] * m.dp / m.mu_mix[z, o]
+        return m.rhog[z, o] * m.vel[z, o] * RPB.dp / m.mu_mix[z, o]
 
     @blk.Expression(blk.z, blk.o, doc="Schmidt number")
     def Sc(m, z, o):
-        return m.mu_mix[z, o] / (m.rhog[z, o] * m.DmCO2)
+        return m.mu_mix[z, o] / (m.rhog[z, o] * RPB.DmCO2)
 
     def smooth_max(x):
         # smooth max operator: max(0, x) = 0.5*(x + (x^2 + eps)^0.5)
@@ -821,11 +819,11 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
         blk.z, blk.o, doc="Gas-solid heat transfer coefficient  equation [kW/m^2/K]"
     )
     def h_gs(m, z, o):
-        return m.Nu[z, o] * m.k_mix[z, o] / m.dp
+        return m.Nu[z, o] * m.k_mix[z, o] / RPB.dp
 
     @blk.Expression(blk.z, blk.o, doc="Gas phase film mass transfer coefficient [m/s]")
     def k_f(m, z, o):
-        return m.Sh[z, o] * m.DmCO2 / m.dp
+        return m.Sh[z, o] * RPB.DmCO2 / RPB.dp
 
     # Model equations
     def d_1(T):
@@ -875,7 +873,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
             m.Cs_r[z, o]
             + (m.Cs_r[z, o] ** 2 + eps * (units.mol / units.m**3) ** 2) ** 0.5
         )
-        return Cs_r_smooth_max * m.Rg * m.Ts[z, o]
+        return Cs_r_smooth_max * RPB.Rg * m.Ts[z, o]
 
     @blk.Expression(blk.z, blk.o, doc="log(Psurf)")
     def ln_Psurf(m, z, o):
@@ -925,12 +923,12 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
 
     @blk.Expression(blk.z, blk.o, doc="effective diffusion in solids [m^2/s]")
     def Deff(m, z, o):
-        return m.C1 * m.Ts[z, o] ** 0.5
+        return RPB.C1 * m.Ts[z, o] ** 0.5
 
     @blk.Expression(blk.z, blk.o, doc="internal MT coeff. [1/s]")
     def k_I(m, z, o):
         return (
-            m.R_MT_coeff * (15 * m.ep * m.Deff[z, o] / m.rp**2)
+            m.R_MT_coeff * (15 * RPB.ep * m.Deff[z, o] / RPB.rp**2)
             + (1 - m.R_MT_coeff) * 0.001 / units.s
         )
 
@@ -1109,7 +1107,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
         if 0 < o < 1:
             return (1 - RPB.eb) * RPB.rho_sol * m.dqCO2do[z, o] * RPB.w == (
                 m.Rs_CO2[z, o] * m.R_MT_solid
-            ) * ((2 * m.pi * units.radians) * m.theta)
+            ) * ((2 * RPB.pi * units.radians) * m.theta)
         elif o == 1:  # at solids exit, flux is zero
             return m.dqCO2do[z, o] == 0
         else:  # no balance at o=0, inlets are specified
@@ -1135,7 +1133,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
     @blk.Constraint(blk.z, blk.o, doc="solid phase energy balance PDE [kJ/s/m^3 bed]")
     def pde_solidEB(m, z, o):
         if 0 < o < 1:
-            return (1 - m.eb) * m.rho_sol * m.Cp_sol * RPB.w * m.dTsdo[z, o] == (
+            return (1 - RPB.eb) * RPB.rho_sol * RPB.Cp_sol * RPB.w * m.dTsdo[z, o] == (
                 -m.Q_gs[z, o] - m.Q_delH[z, o]
             ) * ((2 * RPB.pi * units.radians) * m.theta)
         elif o == 1:
@@ -1308,7 +1306,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
 
     @blk.Expression(doc="section bed volume [m^3 bed]")
     def bed_vol_section(m):
-        return m.pi * (m.D / 2) ** 2 * m.L * (1 - m.Hx_frac) * m.theta
+        return RPB.pi * (RPB.D / 2) ** 2 * RPB.L * (1 - m.Hx_frac) * m.theta
 
     @blk.Expression(doc="Total heat transfer to HX [kW]")
     def Q_ghx_tot_kW(m):
@@ -1330,15 +1328,15 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
 
     @blk.Expression(doc="total bed volume [m^3]")
     def vol_tot(m):
-        return m.pi * (m.D / 2) ** 2 * m.L * (1 - m.Hx_frac)
+        return RPB.pi * (RPB.D / 2) ** 2 * RPB.L * (1 - m.Hx_frac)
 
     @blk.Expression(doc="total solids volume [m^3]")
     def vol_solids_tot(m):
-        return m.vol_tot * (1 - m.eb)
+        return m.vol_tot * (1 - RPB.eb)
 
     @blk.Expression(doc="total solids mass [kg]")
     def mass_solids_tot(m):
-        return m.vol_solids_tot * m.rho_sol
+        return m.vol_solids_tot * RPB.rho_sol
 
     @blk.Expression(doc="total solids flow [kg/s]")
     def flow_solids_tot(m):
@@ -1413,7 +1411,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
         z_discretizer.apply_to(
             blk,
             wrt=blk.z,
-            nfe=RPB.CONFIG.z_finite_elements,
+            nfe=RPB.CONFIG.z_nfe,
             ncp=RPB.CONFIG.z_Collpoints,
             scheme="LAGRANGE-RADAU",
         )
@@ -1421,11 +1419,11 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
         z_discretizer = TransformationFactory("dae.finite_difference")
         if gas_flow_direction == 1:
             z_discretizer.apply_to(
-                blk, wrt=blk.z, nfe=RPB.CONFIG.z_finite_elements, scheme="BACKWARD"
+                blk, wrt=blk.z, nfe=RPB.CONFIG.z_nfe, scheme="BACKWARD"
             )
         elif gas_flow_direction == -1:
             z_discretizer.apply_to(
-                blk, wrt=blk.z, nfe=RPB.CONFIG.z_finite_elements, scheme="FORWARD"
+                blk, wrt=blk.z, nfe=RPB.CONFIG.z_nfe, scheme="FORWARD"
             )
     elif RPB.CONFIG.z_disc_method == "Finite Volume":
         z_discretizer = TransformationFactory("dae.finite_volume")
@@ -1433,7 +1431,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
             z_discretizer.apply_to(
                 blk,
                 wrt=blk.z,
-                nfv=RPB.CONFIG.z_finite_elements,
+                nfv=RPB.CONFIG.z_nfe,
                 scheme="WENO3",
                 flow_direction=1,
             )
@@ -1441,28 +1439,28 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
             z_discretizer.apply_to(
                 blk,
                 wrt=blk.z,
-                nfv=RPB.CONFIG.z_finite_elements,
+                nfv=RPB.CONFIG.z_nfe,
                 scheme="WENO3",
                 flow_direction=-1,
             )
 
-    if RPB.CONFIG.o_disc_method == "Collocation":
+    if blk.CONFIG.o_disc_method == "Collocation":
         o_discretizer = TransformationFactory("dae.collocation")
         o_discretizer.apply_to(
             blk,
             wrt=blk.o,
-            nfe=RPB.CONFIG.o_finite_elements,
-            ncp=RPB.CONFIG.o_Collpoints,
+            nfe=blk.CONFIG.o_nfe,
+            ncp=blk.CONFIG.o_Collpoints,
         )
-    elif RPB.CONFIG.o_disc_method == "Finite Difference":
+    elif blk.CONFIG.o_disc_method == "Finite Difference":
         o_discretizer = TransformationFactory("dae.finite_difference")
-        o_discretizer.apply_to(blk, wrt=blk.o, nfe=RPB.CONFIG.o_finite_elements)
-    elif RPB.CONFIG.o_disc_method == "Finite Volume":
+        o_discretizer.apply_to(blk, wrt=blk.o, nfe=blk.CONFIG.o_nfe)
+    elif blk.CONFIG.o_disc_method == "Finite Volume":
         o_discretizer = TransformationFactory("dae.finite_volume")
         o_discretizer.apply_to(
             blk,
             wrt=blk.o,
-            nfv=RPB.CONFIG.o_finite_elements,
+            nfv=blk.CONFIG.o_nfe,
             scheme="WENO3",
             flow_direction=1,
         )
@@ -1890,7 +1888,7 @@ def get_init_factors(blk):
 
 
 def evaluate_MB_error(blk):
-    for k in blk.component_list:
+    for k in blk.parent_block().component_list:
         # print error for each component formatted in scientific notation
         print(f"{k} error = {blk.MB_error[k]():.3} %")
 
@@ -2157,14 +2155,17 @@ def single_section_init2(blk):
 
 
 def full_model_creation(lean_temp_connection=True, configuration="co-current"):
-    RPB = ConcreteModel()
+    RPB = RotaryPackedBed()
+
+    RPB.ads = Block()
+    RPB.des = Block()
 
     if configuration == "co-current":
-        RPB.ads = RPB_model(mode="adsorption", gas_flow_direction=1)
-        RPB.des = RPB_model(mode="desorption", gas_flow_direction=1)
+        add_single_section_equations(RPB.ads, mode="adsorption", gas_flow_direction=1)
+        add_single_section_equations(RPB.des, mode="desorption", gas_flow_direction=1)
     elif configuration == "counter-current":
-        RPB.ads = RPB_model(mode="adsorption", gas_flow_direction=1)
-        RPB.des = RPB_model(mode="desorption", gas_flow_direction=-1)
+        add_single_section_equations(RPB.ads, mode="adsorption", gas_flow_direction=1)
+        add_single_section_equations(RPB.des, mode="desorption", gas_flow_direction=-1)
 
     # fix BCs
     # RPB.ads.P_in.fix(1.1)
@@ -2270,9 +2271,7 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current"):
 
     @RPB.Expression(doc="Steam energy [kW]")
     def steam_energy(RPB):
-        return (
-            RPB.des.F_in * RPB.des.y_in["H2O"] * RPB.des.MW["H2O"] * RPB.steam_enthalpy
-        )
+        return RPB.des.F_in * RPB.des.y_in["H2O"] * RPB.MW["H2O"] * RPB.steam_enthalpy
 
     @RPB.Expression(doc="total thermal energy (steam + HX) [kW]")
     def total_thermal_energy(RPB):
@@ -2281,14 +2280,14 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current"):
     @RPB.Expression(doc="Energy requirement [MJ/kg CO2]")
     def energy_requirement(RPB):
         return units.convert(
-            RPB.total_thermal_energy / RPB.ads.delta_CO2 / RPB.ads.MW["CO2"],
+            RPB.total_thermal_energy / RPB.ads.delta_CO2 / RPB.MW["CO2"],
             to_units=units.MJ / units.kg,
         )
 
     @RPB.Expression(doc="Productivity [kg CO2/h/m^3]")
     def productivity(RPB):
         return units.convert(
-            RPB.ads.delta_CO2 * RPB.ads.MW["CO2"] / RPB.ads.vol_tot,
+            RPB.ads.delta_CO2 * RPB.MW["CO2"] / RPB.ads.vol_tot,
             to_units=units.kg / units.h / units.m**3,
         )
 
