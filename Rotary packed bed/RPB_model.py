@@ -43,6 +43,8 @@ from idaes.core.initialization.block_triangularization import (
 
 from pyomo.common.config import ConfigBlock, ConfigValue
 
+from idaes.core.util.math import smooth_max
+
 
 # Creating upper level RPB block
 def RotaryPackedBed():
@@ -173,7 +175,7 @@ def RotaryPackedBed():
     )
     blk.d_inf_4 = Param(
         initialize=0.28,
-        units=units.bar * units.mol / units.kg,
+        units=units.mol / units.kg / units.bar,
         doc="isotherm parameter",
     )
 
@@ -302,6 +304,15 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
     )
 
     blk.CONFIG.declare(
+        "o_init_points",
+        ConfigValue(
+            default=tuple(np.geomspace(0.005, 0.1, 8))
+            + tuple(np.linspace(0.1, 0.995, 10)[1:]),
+            description="initial o nodes",
+        ),
+    )
+
+    blk.CONFIG.declare(
         "o_nfe", ConfigValue(default=20, description="Number of o finite elements")
     )
 
@@ -324,8 +335,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
     blk.o = ContinuousSet(
         doc="adsorption theta nodes [dimensionless]",
         bounds=(0, 1),
-        initialize=tuple(np.geomspace(0.005, 0.1, 8))
-        + tuple(np.linspace(0.1, 0.995, 10)[1:]),
+        initialize=blk.CONFIG.o_init_points,
     )
 
     if mode == "adsorption":
@@ -795,21 +805,18 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
     def Sc(m, z, o):
         return m.mu_mix[z, o] / (m.rhog[z, o] * RPB.DmCO2)
 
-    def smooth_max(x):
-        # smooth max operator: max(0, x) = 0.5*(x + (x^2 + eps)^0.5)
-        eps = 1e-6
-        return 0.5 * (x + (x**2 + eps) ** 0.5)
-
     @blk.Expression(blk.z, blk.o, doc="Sherwood number")
     def Sh(m, z, o):
         return (
-            2.0 + 0.6 * smooth_max(m.Re[z, o]) ** 0.33 * smooth_max(m.Sc[z, o]) ** 0.5
+            2.0
+            + 0.6 * smooth_max(0, m.Re[z, o]) ** 0.33 * smooth_max(0, m.Sc[z, o]) ** 0.5
         )
 
     @blk.Expression(blk.z, blk.o, doc="Nusselt number")
     def Nu(m, z, o):
         return (
-            2.0 + 1.1 * smooth_max(m.Re[z, o]) ** 0.6 * smooth_max(m.Pr[z, o]) ** 0.33
+            2.0
+            + 1.1 * smooth_max(0, m.Re[z, o]) ** 0.6 * smooth_max(0, m.Pr[z, o]) ** 0.33
         )
 
     # ===
@@ -874,6 +881,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
             + (m.Cs_r[z, o] ** 2 + eps * (units.mol / units.m**3) ** 2) ** 0.5
         )
         return Cs_r_smooth_max * RPB.Rg * m.Ts[z, o]
+        # return smooth_max(0,m.Cs_r[z, o]) * RPB.Rg * m.Ts[z, o] #idaes smooth_max doesn't carry units through
 
     @blk.Expression(blk.z, blk.o, doc="log(Psurf)")
     def ln_Psurf(m, z, o):
@@ -2237,23 +2245,6 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current"):
     RPB.des.Ts[0, 0].fix(100 + 273)
     RPB.des.Ts[1, 0].fix(100 + 273)
 
-    # add constraints so that the length, diameter, and rotational speed are the same for both sides
-    RPB.des.L.unfix()  # unfix des side vars
-    RPB.des.D.unfix()
-    RPB.des.w_rpm.unfix()
-
-    @RPB.Constraint(doc="Length equality constraint")
-    def length_constraint(RPB):
-        return RPB.ads.L == RPB.des.L
-
-    @RPB.Constraint(doc="Diameter equality constraint")
-    def diameter_constraint(RPB):
-        return RPB.ads.D == RPB.des.D
-
-    @RPB.Constraint(doc="Rotational speed equality constraint")
-    def speed_constraint(RPB):
-        return RPB.ads.w_rpm == RPB.des.w_rpm
-
     # add constraint so that the fraction of each section adds to 1
     RPB.des.theta.unfix()  # unfix des side var
 
@@ -2430,9 +2421,9 @@ def init_routine_2(blk):
 
 def report(blk):
     items = [
-        blk.ads.L,
-        blk.ads.D,
-        blk.ads.w_rpm,
+        blk.L,
+        blk.D,
+        blk.w_rpm,
         blk.ads.theta,
         blk.des.theta,
         blk.ads.P_in,
