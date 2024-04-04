@@ -44,6 +44,7 @@ from idaes.core.initialization.block_triangularization import (
 from pyomo.common.config import ConfigBlock, ConfigValue
 
 from idaes.core.util.math import smooth_max
+from idaes.core.util.constants import Constants as const
 
 
 # Creating upper level RPB block
@@ -79,17 +80,17 @@ def RotaryPackedBed():
         ),
     )
 
-    blk.R = Param(
-        initialize=8.314e-3,
-        units=units.kJ / units.mol / units.K,
-        doc="gas constant [kJ/mol/K]",
-    )
-    blk.Rg = Param(
-        initialize=8.314e-5,
-        units=units.m**3 * units.bar / units.K / units.mol,
-        doc="gas constant [m^3*bar/K/mol]",
-    )
-    blk.pi = Param(initialize=3.14159, doc="Pi constant")
+    @blk.Expression(doc="gas constant [kJ/mol/K]")
+    def R(m):
+        return units.convert(
+            const.gas_constant, to_units=units.kJ / units.mol / units.K
+        )
+
+    @blk.Expression(doc="gas constant [m^3*bar/K/mol]")
+    def Rg(m):
+        return units.convert(
+            const.gas_constant, to_units=units.m**3 * units.bar / units.K / units.mol
+        )
 
     # Initial/Inlet/Outlet Values
 
@@ -122,7 +123,7 @@ def RotaryPackedBed():
     def w(m):
         return (
             m.w_rpm
-            * (2 * m.pi * units.radians / units.revolutions)
+            * (2 * const.pi * units.radians / units.revolutions)
             / (60 * units.sec / units.min)
         )
 
@@ -366,7 +367,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
 
     @blk.Expression(doc="cross sectional area, total area*theta [m^2]")
     def A_c(m):
-        return RPB.pi * RPB.D**2 / 4 * m.theta
+        return const.pi * RPB.D**2 / 4 * m.theta
 
     @blk.Expression(doc="cross sectional area for flow [m^2]")
     def A_b(m):
@@ -1115,7 +1116,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
         if 0 < o < 1:
             return (1 - RPB.eb) * RPB.rho_sol * m.dqCO2do[z, o] * RPB.w == (
                 m.Rs_CO2[z, o] * m.R_MT_solid
-            ) * ((2 * RPB.pi * units.radians) * m.theta)
+            ) * ((2 * const.pi * units.radians) * m.theta)
         elif o == 1:  # at solids exit, flux is zero
             return m.dqCO2do[z, o] == 0
         else:  # no balance at o=0, inlets are specified
@@ -1143,7 +1144,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
         if 0 < o < 1:
             return (1 - RPB.eb) * RPB.rho_sol * RPB.Cp_sol * RPB.w * m.dTsdo[z, o] == (
                 -m.Q_gs[z, o] - m.Q_delH[z, o]
-            ) * ((2 * RPB.pi * units.radians) * m.theta)
+            ) * ((2 * const.pi * units.radians) * m.theta)
         elif o == 1:
             return m.dTsdo[z, o] == 0
         else:
@@ -1314,7 +1315,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
 
     @blk.Expression(doc="section bed volume [m^3 bed]")
     def bed_vol_section(m):
-        return RPB.pi * (RPB.D / 2) ** 2 * RPB.L * (1 - m.Hx_frac) * m.theta
+        return const.pi * (RPB.D / 2) ** 2 * RPB.L * (1 - m.Hx_frac) * m.theta
 
     @blk.Expression(doc="Total heat transfer to HX [kW]")
     def Q_ghx_tot_kW(m):
@@ -1336,7 +1337,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
 
     @blk.Expression(doc="total bed volume [m^3]")
     def vol_tot(m):
-        return RPB.pi * (RPB.D / 2) ** 2 * RPB.L * (1 - m.Hx_frac)
+        return const.pi * (RPB.D / 2) ** 2 * RPB.L * (1 - m.Hx_frac)
 
     @blk.Expression(doc="total solids volume [m^3]")
     def vol_solids_tot(m):
