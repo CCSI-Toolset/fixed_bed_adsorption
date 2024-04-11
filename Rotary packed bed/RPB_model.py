@@ -8,27 +8,23 @@ Created on Thu Feb 16 08:22:36 2023
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import time
 
 from pyomo.environ import (
     ConcreteModel,
     Var,
     Param,
     Constraint,
-    Expression,
     units,
     exp,
     log,
     TransformationFactory,
     SolverFactory,
     value,
-    PositiveReals,
-    NonNegativeReals,
     Set,
     Objective,
     Block,
 )
-from pyomo.dae import ContinuousSet, DerivativeVar, Integral
+from pyomo.dae import ContinuousSet, DerivativeVar
 from idaes import *
 from idaes.core.util.model_statistics import degrees_of_freedom
 from idaes.core.util import to_json, from_json, StoreSpec
@@ -41,10 +37,12 @@ from idaes.core.initialization.block_triangularization import (
     BlockTriangularizationInitializer,
 )
 
-from pyomo.common.config import ConfigBlock, ConfigValue
+from pyomo.common.config import ConfigBlock, ConfigValue, In
 
 from idaes.core.util.math import smooth_max
 from idaes.core.util.constants import Constants as const
+
+from idaes.models_extra.power_generation.properties import FlueGasParameterBlock
 
 
 # Creating upper level RPB block
@@ -58,25 +56,32 @@ def RotaryPackedBed():
         ConfigValue(
             default=tuple(np.geomspace(0.01, 0.5, 9)[:-1])
             + tuple((1 - np.geomspace(0.01, 0.5, 9))[::-1]),
+            domain=tuple,
             description="initial axial nodes",
         ),
     )
     blk.CONFIG.declare(
         "z_disc_method",
         ConfigValue(
-            default="Finite Difference", description="Axial discretization method"
+            default="Finite Difference",
+            domain=In(["Finite Difference", "Collocation"]),
+            description="Axial discretization method",
         ),
     )
     blk.CONFIG.declare(
         "z_nfe",
         ConfigValue(
-            default=20, description="Number of finite elements for axial direction"
+            default=20,
+            domain=int,
+            description="Number of finite elements for axial direction",
         ),
     )
     blk.CONFIG.declare(
         "z_collocation_points",
         ConfigValue(
-            default=2, description="Number of collocation points for axial direction"
+            default=2,
+            domain=int,
+            description="Number of collocation points for axial direction",
         ),
     )
 
@@ -287,10 +292,14 @@ def RotaryPackedBed():
         doc="gas phase CO2 diffusivity [m^2/s]",
     )
 
+    blk.gas_props = FlueGasParameterBlock(components=blk.component_list)
+
+    # ==============================================================================
+
     return blk
 
 
-def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
+def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction="forward"):
     # get parent block
     RPB = blk.parent_block()
 
@@ -300,7 +309,8 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
         "gas_flow_direction",
         ConfigValue(
             default=gas_flow_direction,
-            description="gas flow direction, used for simulation of counter-current configuration",
+            domain=In(["forward", "reverse"]),
+            description="gas flow direction, used for simulation of counter-current configuration. Forward flows from 0 to 1, reverse flows from 1 to 0",
         ),
     )
 
@@ -309,22 +319,30 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
         ConfigValue(
             default=tuple(np.geomspace(0.005, 0.1, 8))
             + tuple(np.linspace(0.1, 0.995, 10)[1:]),
+            domain=tuple,
             description="initial o nodes",
         ),
     )
 
     blk.CONFIG.declare(
-        "o_nfe", ConfigValue(default=20, description="Number of o finite elements")
+        "o_nfe",
+        ConfigValue(default=20, domain=int, description="Number of o finite elements"),
     )
 
     blk.CONFIG.declare(
         "o_collocation_points",
-        ConfigValue(default=2, description="Number of o collocation points"),
+        ConfigValue(
+            default=2, domain=int, description="Number of o collocation points"
+        ),
     )
 
     blk.CONFIG.declare(
         "o_disc_method",
-        ConfigValue(default="Finite Difference", description="o discretization method"),
+        ConfigValue(
+            default="Finite Difference",
+            domain=In(["Finite Difference", "Collocation"]),
+            description="o discretization method",
+        ),
     )
 
     blk.z = ContinuousSet(
@@ -1084,7 +1102,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
         doc="gas phase species balance PDE [mol/m^3 bed/s]",
     )
     def pde_gasMB(m, k, z, o):
-        if blk.CONFIG.gas_flow_direction == 1:
+        if blk.CONFIG.gas_flow_direction == "forward":
             if 0 < z < 1:
                 if k == "CO2":
                     return m.dFluxdz[k, z, o] == (-m.Rg_CO2[z, o] * m.R_MT_gas) * RPB.L
@@ -1094,7 +1112,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
                 return m.dFluxdz[k, z, o] == 0
             else:  # no balance at z=0, inlets are specified
                 return Constraint.Skip
-        elif blk.CONFIG.gas_flow_direction == -1:
+        elif blk.CONFIG.gas_flow_direction == "reverse":
             if 0 < z < 1:
                 if k == "CO2":
                     return -m.dFluxdz[k, z, o] == (-m.Rg_CO2[z, o] * m.R_MT_gas) * RPB.L
@@ -1124,14 +1142,14 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
 
     @blk.Constraint(blk.z, blk.o, doc="gas phase energy balance PDE [kJ/m^3 bed/s]")
     def pde_gasEB(m, z, o):
-        if blk.CONFIG.gas_flow_direction == 1:
+        if blk.CONFIG.gas_flow_direction == "forward":
             if 0 < z < 1:
                 return m.dheat_fluxdz[z, o] == (m.Q_gs[z, o] - m.Q_ghx[z, o]) * RPB.L
             elif z == 1:
                 return m.dheat_fluxdz[z, o] == 0
             else:
                 return Constraint.Skip
-        elif blk.CONFIG.gas_flow_direction == -1:
+        elif blk.CONFIG.gas_flow_direction == "reverse":
             if 0 < z < 1:
                 return -m.dheat_fluxdz[z, o] == (m.Q_gs[z, o] - m.Q_ghx[z, o]) * RPB.L
             elif z == 0:
@@ -1166,12 +1184,12 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
             / RPB.dp
             * m.vel[z, o] ** 2
         )
-        if blk.CONFIG.gas_flow_direction == 1:
+        if blk.CONFIG.gas_flow_direction == "forward":
             if z > 0:
                 return m.dPdz[z, o] / RPB.L == RHS
             else:
                 return Constraint.Skip
-        elif blk.CONFIG.gas_flow_direction == -1:
+        elif blk.CONFIG.gas_flow_direction == "reverse":
             if z < 1:
                 return -m.dPdz[z, o] / RPB.L == RHS
             else:
@@ -1179,12 +1197,12 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
 
     @blk.Constraint(blk.z, blk.o, doc="mole fraction summation")
     def mole_frac_sum(m, z, o):
-        if blk.CONFIG.gas_flow_direction == 1:
+        if blk.CONFIG.gas_flow_direction == "forward":
             if z > 0:
                 return sum([m.y[k, z, o] for k in RPB.component_list]) == 1
             else:
                 return Constraint.Skip
-        elif blk.CONFIG.gas_flow_direction == -1:
+        elif blk.CONFIG.gas_flow_direction == "reverse":
             if z < 1:
                 return sum([m.y[k, z, o] for k in RPB.component_list]) == 1
             else:
@@ -1192,7 +1210,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
 
     # Boundary Conditions ===
 
-    if blk.CONFIG.gas_flow_direction == 1:
+    if blk.CONFIG.gas_flow_direction == "forward":
 
         @blk.Constraint(blk.o, doc="inlet gas temp. B.C. [K]")
         def bc_gastemp_in(m, o):
@@ -1210,7 +1228,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
         def bc_y_in(m, k, o):
             return m.y[k, 0, o] == m.y_in[k]
 
-    elif blk.CONFIG.gas_flow_direction == -1:
+    elif blk.CONFIG.gas_flow_direction == "reverse":
 
         @blk.Constraint(blk.o, doc="inlet gas temp. B.C. [K]")
         def bc_gastemp_in(m, o):
@@ -1229,7 +1247,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
             return m.y[k, 1, o] == m.y_in[k]
 
     # Outlet values ==========
-    if gas_flow_direction == 1:
+    if gas_flow_direction == "forward":
 
         @blk.Integral(blk.o, wrt=blk.o, doc="outlet gas enthalpy [kJ/mol]")
         def Hg_out(m, o):
@@ -1247,7 +1265,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
         def bc_P_out(m, o):
             return m.P[1, o] == m.P_out
 
-    elif gas_flow_direction == -1:
+    elif gas_flow_direction == "reverse":
 
         @blk.Integral(blk.o, wrt=blk.o, doc="outlet gas enthalpy [kJ/mol]")
         def Hg_out(m, o):
@@ -1426,17 +1444,17 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
         )
     elif RPB.CONFIG.z_disc_method == "Finite Difference":
         z_discretizer = TransformationFactory("dae.finite_difference")
-        if gas_flow_direction == 1:
+        if gas_flow_direction == "forward":
             z_discretizer.apply_to(
                 blk, wrt=blk.z, nfe=RPB.CONFIG.z_nfe, scheme="BACKWARD"
             )
-        elif gas_flow_direction == -1:
+        elif gas_flow_direction == "reverse":
             z_discretizer.apply_to(
                 blk, wrt=blk.z, nfe=RPB.CONFIG.z_nfe, scheme="FORWARD"
             )
     elif RPB.CONFIG.z_disc_method == "Finite Volume":
         z_discretizer = TransformationFactory("dae.finite_volume")
-        if gas_flow_direction == 1:
+        if gas_flow_direction == "forward":
             z_discretizer.apply_to(
                 blk,
                 wrt=blk.z,
@@ -1444,7 +1462,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
                 scheme="WENO3",
                 flow_direction=1,
             )
-        elif gas_flow_direction == -1:
+        elif gas_flow_direction == "reverse":
             z_discretizer.apply_to(
                 blk,
                 wrt=blk.z,
@@ -1558,7 +1576,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
                 iscale.set_scaling_factor(blk.Rs_CO2[z, o], 0.5)
                 iscale.set_scaling_factor(blk.Rs_CO2_eq[z, o], 1)
 
-            if gas_flow_direction == 1:
+            if gas_flow_direction == "forward":
                 if z > 0:
                     iscale.set_scaling_factor(blk.dFluxdz_disc_eq["CO2", z, o], 0.4)
                     iscale.set_scaling_factor(
@@ -1587,7 +1605,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction=1):
                     iscale.set_scaling_factor(
                         blk.y["CO2", z, o], 1 / value(blk.y_in["CO2"])
                     )
-            elif gas_flow_direction == -1:
+            elif gas_flow_direction == "reverse":
                 if z < 1:
                     iscale.set_scaling_factor(blk.dFluxdz_disc_eq["CO2", z, o], 0.5)
                     iscale.set_scaling_factor(blk.dFluxdz_disc_eq["H2O", z, o], 0.5)
@@ -2170,11 +2188,19 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current"):
     RPB.des = Block()
 
     if configuration == "co-current":
-        add_single_section_equations(RPB.ads, mode="adsorption", gas_flow_direction=1)
-        add_single_section_equations(RPB.des, mode="desorption", gas_flow_direction=1)
+        add_single_section_equations(
+            RPB.ads, mode="adsorption", gas_flow_direction="forward"
+        )
+        add_single_section_equations(
+            RPB.des, mode="desorption", gas_flow_direction="forward"
+        )
     elif configuration == "counter-current":
-        add_single_section_equations(RPB.ads, mode="adsorption", gas_flow_direction=1)
-        add_single_section_equations(RPB.des, mode="desorption", gas_flow_direction=-1)
+        add_single_section_equations(
+            RPB.ads, mode="adsorption", gas_flow_direction="forward"
+        )
+        add_single_section_equations(
+            RPB.des, mode="desorption", gas_flow_direction="reverse"
+        )
 
     # fix BCs
     # RPB.ads.P_in.fix(1.1)
