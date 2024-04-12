@@ -24,6 +24,7 @@ from pyomo.environ import (
     Objective,
     Block,
 )
+from pyomo.network import Port
 from pyomo.dae import ContinuousSet, DerivativeVar
 from idaes import *
 from idaes.core.util.model_statistics import degrees_of_freedom
@@ -302,9 +303,13 @@ def RotaryPackedBed():
     return blk
 
 
-def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction="forward"):
+def add_single_section_equations(
+    RPB, section_name, mode="Adsorption", gas_flow_direction="forward"
+):
+    setattr(RPB, section_name, Block())
+    blk = getattr(RPB, section_name)
     # get parent block
-    RPB = blk.parent_block()
+    # RPB = blk.parent_block()
 
     blk.CONFIG = ConfigBlock()
 
