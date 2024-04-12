@@ -421,13 +421,13 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction="for
 
     if mode == "adsorption":
         Tg_in = 90 + 273
-        y_in = {"CO2": 0.04, "N2": 0.87, "H2O": 0.09}
+        y_in = {(0, "CO2"): 0.04, (0, "N2"): 0.87, (0, "H2O"): 0.09}
     elif mode == "desorption":
         Tg_in = 120 + 273
-        y_in = {"CO2": 1e-5, "N2": 1e-3, "H2O": (1 - 1e-5 - 1e-3)}
+        y_in = {(0, "CO2"): 1e-5, (0, "N2"): 1e-3, (0, "H2O"): (1 - 1e-5 - 1e-3)}
     else:
         Tg_in = 90 + 273
-        y_in = {"CO2": 0.04, "N2": 0.87, "H2O": 0.09}
+        y_in = {(0, "CO2"): 0.04, (0, "N2"): 0.87, (0, "H2O"): 0.09}
 
     blk.Tg_in = Var(
         RPB.time, initialize=Tg_in, units=units.K, doc="Inlet flue gas temperature [K]"
@@ -464,7 +464,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction="for
 
     blk.F_out = Var(
         RPB.time,
-        initialize=blk.F_in(),
+        initialize=blk.F_in[0](),
         bounds=(0, None),
         units=units.mol / units.s,
         doc="Total gas outlet flow [mol/s]",
@@ -512,7 +512,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction="for
         RPB.time,
         blk.z,
         blk.o,
-        initialize=value(blk.C_in["CO2"]),
+        initialize=value(blk.C_in[0, "CO2"]),
         # domain=NonNegativeReals,
         bounds=(0, 100),
         units=units.mol / units.m**3,
@@ -533,7 +533,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction="for
         RPB.time,
         blk.z,
         blk.o,
-        initialize=blk.Tg_in.value,
+        initialize=blk.Tg_in[0].value,
         # domain=PositiveReals,
         bounds=(25 + 273.15, 180 + 273.15),
         doc="Gas phase temperature [K]",
@@ -560,7 +560,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction="for
         RPB.time,
         blk.z,
         blk.o,
-        initialize=value(blk.vel0),
+        initialize=value(blk.vel0[0]),
         bounds=(0, 5),
         units=units.m / units.s,
         doc="superficial gas velocity [m/s], adsorption",
@@ -570,7 +570,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction="for
         RPB.time,
         blk.z,
         blk.o,
-        initialize=blk.P_in.value,
+        initialize=blk.P_in[0].value,
         bounds=(0.99, 1.2),
         units=units.bar,
         doc="Gas Pressure [bar]",
@@ -687,7 +687,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction="for
         RPB.time,
         blk.z,
         blk.o,
-        initialize=value(blk.C_tot_in),
+        initialize=value(blk.C_tot_in[0]),
         bounds=(0, 100),
         doc="Total conc., [mol/m^3] (ideal gas law)",
         units=units.mol / units.m**3,
@@ -726,7 +726,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction="for
     blk.Flow_z = Var(
         RPB.time,
         blk.z,
-        initialize=blk.F_in(),
+        initialize=blk.F_in[0](),
         bounds=(0, None),
         units=units.mol / units.s,
         doc="Total flow integrated over theta, function of z [mol/s]",
@@ -1128,7 +1128,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction="for
                 t, z, o
             ] * RPB.a_s * (b.Ts[t, z, o] - b.Tg[t, z, o])
         else:
-            return b.Q_gs[z, o] == 0
+            return b.Q_gs[t, z, o] == 0
 
     blk.Q_ghx = Var(
         RPB.time,
@@ -1255,7 +1255,7 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction="for
     )
     def pde_solidEB(b, t, z, o):
         if 0 < o < 1:
-            return (1 - RPB.eb) * RPB.rho_sol * RPB.Cp_sol * RPB.w * b.dTsdo[
+            return (1 - RPB.eb) * RPB.rho_sol * RPB.Cp_sol * RPB.w[t] * b.dTsdo[
                 t, z, o
             ] == (-b.Q_gs[t, z, o] - b.Q_delH[t, z, o]) * (
                 (2 * const.pi * units.radians) * b.theta
@@ -1621,11 +1621,11 @@ def add_single_section_equations(blk, mode="Adsorption", gas_flow_direction="for
                     blk.Flux_kzo[t, z, o, k] = value(blk.C_in[t, k] * blk.vel[t, z, o])
 
         # scaling factors ================================
-        iscale.set_scaling_factor(blk.bc_P_in[t], 10)
+        iscale.set_scaling_factor(blk.bc_P_in, 10)
         iscale.set_scaling_factor(blk.bc_y_out[t, "CO2"], 25)
         iscale.set_scaling_factor(blk.bc_y_out[t, "H2O"], 1 / value(blk.y_in[t, "H2O"]))
         iscale.set_scaling_factor(blk.bc_y_out[t, "N2"], 1 / value(blk.y_in[t, "N2"]))
-        iscale.set_scaling_factor(blk.bc_P_out[t], 10)
+        iscale.set_scaling_factor(blk.bc_P_out, 10)
         # iscale.set_scaling_factor(blk.Tg_out_eq, 1e-3)
         iscale.set_scaling_factor(blk.Tg_out[t], 1e-2)
         iscale.set_scaling_factor(blk.y_out[t, "H2O"], 1 / value(blk.y_in[t, "H2O"]))
@@ -2072,7 +2072,7 @@ def get_init_factors(blk):
 def evaluate_MB_error(blk):
     for k in blk.parent_block().component_list:
         # print error for each component formatted in scientific notation
-        print(f"{k} error = {blk.MB_error[k]():.3} %")
+        print(f"{k} error = {blk.MB_error[0,k]():.3} %")
 
 
 def homotopy_solve1(blk):
@@ -2470,8 +2470,8 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current"):
     for t in RPB.time:
         for z in RPB.ads.z:
             if 0 < z < 1:
-                iscale.set_scaling_factor(RPB.lean_loading_constraint[z], 10)
-                iscale.set_scaling_factor(RPB.rich_loading_constraint[z], 10)
+                iscale.set_scaling_factor(RPB.lean_loading_constraint[t, z], 10)
+                iscale.set_scaling_factor(RPB.rich_loading_constraint[t, z], 10)
 
     return RPB
 
@@ -2642,7 +2642,7 @@ def report(blk):
             fixed.append(item.fixed)
             lb.append(item.lb)
             ub.append(item.ub)
-        docs.append(item.doc)
+        docs.append(item.parent_component().doc)
 
     report_df = pd.DataFrame(
         data={
