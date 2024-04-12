@@ -29,12 +29,11 @@ measure_keys = ["vg",
                 "Ts", 
                 "P",
                 "y_CO2", 
-                #"C_CO2", 
-                #"C_N2"
                ]
 
 num_z_grid = 10
 
+# measurement length of every 
 #measure_len = [40,800,800,800,800,800,800]
 measure_len = [20,200,200,180,200]
 measure_len_loc = [20,
