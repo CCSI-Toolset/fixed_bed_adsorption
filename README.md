@@ -76,5 +76,7 @@ The following instructions assume you have anaconda installed. We suggest create
 
 ## Rerun for results 
 
-In construction
+### Measurement optimization 
+
+
 
