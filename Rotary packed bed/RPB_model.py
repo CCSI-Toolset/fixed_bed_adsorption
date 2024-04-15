@@ -116,6 +116,37 @@ class RotaryPackedBedData(UnitModelBlockData):
         ),
     )
 
+    CONFIG.declare(
+        "o_init_points",
+        ConfigValue(
+            default=tuple(np.geomspace(0.005, 0.1, 8))
+            + tuple(np.linspace(0.1, 0.995, 10)[1:]),
+            domain=tuple,
+            description="initial o nodes",
+        ),
+    )
+
+    CONFIG.declare(
+        "o_nfe",
+        ConfigValue(default=20, domain=int, description="Number of o finite elements"),
+    )
+
+    CONFIG.declare(
+        "o_collocation_points",
+        ConfigValue(
+            default=2, domain=int, description="Number of o collocation points"
+        ),
+    )
+
+    CONFIG.declare(
+        "o_transformation_method",
+        ConfigValue(
+            default="dae.finite_difference",
+            domain=is_transformation_method,
+            description="o discretization method",
+        ),
+    )
+
     def build(self):
         """
         General build method for RPB
@@ -392,45 +423,45 @@ class RotaryPackedBedData(UnitModelBlockData):
         setattr(self, name, SkeletonUnitModel())
         blk = getattr(self, name)
 
+        # blk.CONFIG.declare(
+        #     "o_init_points",
+        #     ConfigValue(
+        #         default=tuple(np.geomspace(0.005, 0.1, 8))
+        #         + tuple(np.linspace(0.1, 0.995, 10)[1:]),
+        #         domain=tuple,
+        #         description="initial o nodes",
+        #     ),
+        # )
+
+        # blk.CONFIG.declare(
+        #     "o_nfe",
+        #     ConfigValue(
+        #         default=20, domain=int, description="Number of o finite elements"
+        #     ),
+        # )
+
+        # blk.CONFIG.declare(
+        #     "o_collocation_points",
+        #     ConfigValue(
+        #         default=2, domain=int, description="Number of o collocation points"
+        #     ),
+        # )
+
+        # blk.CONFIG.declare(
+        #     "o_transformation_method",
+        #     ConfigValue(
+        #         default="dae.finite_difference",
+        #         domain=is_transformation_method,
+        #         description="o discretization method",
+        #     ),
+        # )
+
         blk.CONFIG.declare(
             "gas_flow_direction",
             ConfigValue(
                 default=gas_flow_direction,
                 domain=In(["forward", "reverse"]),
                 description="gas flow direction, used for simulation of counter-current configuration. Forward flows from 0 to 1, reverse flows from 1 to 0",
-            ),
-        )
-
-        blk.CONFIG.declare(
-            "o_init_points",
-            ConfigValue(
-                default=tuple(np.geomspace(0.005, 0.1, 8))
-                + tuple(np.linspace(0.1, 0.995, 10)[1:]),
-                domain=tuple,
-                description="initial o nodes",
-            ),
-        )
-
-        blk.CONFIG.declare(
-            "o_nfe",
-            ConfigValue(
-                default=20, domain=int, description="Number of o finite elements"
-            ),
-        )
-
-        blk.CONFIG.declare(
-            "o_collocation_points",
-            ConfigValue(
-                default=2, domain=int, description="Number of o collocation points"
-            ),
-        )
-
-        blk.CONFIG.declare(
-            "o_transformation_method",
-            ConfigValue(
-                default="dae.finite_difference",
-                domain=is_transformation_method,
-                description="o discretization method",
             ),
         )
 
@@ -443,7 +474,7 @@ class RotaryPackedBedData(UnitModelBlockData):
         blk.o = ContinuousSet(
             doc="adsorption theta nodes [dimensionless]",
             bounds=(0, 1),
-            initialize=blk.CONFIG.o_init_points,
+            initialize=self.CONFIG.o_init_points,
         )
 
         # add section parameters
@@ -1857,18 +1888,18 @@ class RotaryPackedBedData(UnitModelBlockData):
             o_discretizer.apply_to(
                 blk,
                 wrt=blk.o,
-                nfe=blk.CONFIG.o_nfe,
-                ncp=blk.CONFIG.o_Collpoints,
+                nfe=self.CONFIG.o_nfe,
+                ncp=self.CONFIG.o_Collpoints,
             )
         elif blk.CONFIG.o_transformation_method == "dae.finite_difference":
             o_discretizer = TransformationFactory("dae.finite_difference")
-            o_discretizer.apply_to(blk, wrt=blk.o, nfe=blk.CONFIG.o_nfe)
+            o_discretizer.apply_to(blk, wrt=blk.o, nfe=self.CONFIG.o_nfe)
         elif blk.CONFIG.o_transformation_method == "Finite Volume":
             o_discretizer = TransformationFactory("dae.finite_volume")
             o_discretizer.apply_to(
                 blk,
                 wrt=blk.o,
-                nfv=blk.CONFIG.o_nfe,
+                nfv=self.CONFIG.o_nfe,
                 scheme="WENO3",
                 flow_direction=1,
             )
