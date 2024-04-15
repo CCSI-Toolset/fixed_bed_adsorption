@@ -304,12 +304,10 @@ def RotaryPackedBed():
 
 
 def add_single_section_equations(
-    RPB, section_name, mode="Adsorption", gas_flow_direction="forward"
+    RPB, section_name, gas_flow_direction="forward", initial_guesses="Adsorption"
 ):
     setattr(RPB, section_name, Block())
     blk = getattr(RPB, section_name)
-    # get parent block
-    # RPB = blk.parent_block()
 
     blk.CONFIG = ConfigBlock()
 
@@ -365,9 +363,9 @@ def add_single_section_equations(
         initialize=blk.CONFIG.o_init_points,
     )
 
-    if mode == "adsorption":
+    if initial_guesses == "adsorption":
         theta_0 = 0.75
-    elif mode == "desorption":
+    elif initial_guesses == "desorption":
         theta_0 = 0.25
     else:
         theta_0 = 0.5
@@ -424,10 +422,10 @@ def add_single_section_equations(
         doc="Inlet flue gas pressure [bar]",
     )
 
-    if mode == "adsorption":
+    if initial_guesses == "adsorption":
         Tg_in = 90 + 273
         y_in = {(0, "CO2"): 0.04, (0, "N2"): 0.87, (0, "H2O"): 0.09}
-    elif mode == "desorption":
+    elif initial_guesses == "desorption":
         Tg_in = 120 + 273
         y_in = {(0, "CO2"): 1e-5, (0, "N2"): 1e-3, (0, "H2O"): (1 - 1e-5 - 1e-3)}
     else:
@@ -522,10 +520,12 @@ def add_single_section_equations(
         doc="heat exchanger heat transfer coeff. kW/m^2/K",
     )
 
-    if mode == "adsorption":
+    if initial_guesses == "adsorption":
         Tx = 90 + 273
-    elif mode == "desorption":
+    elif initial_guesses == "desorption":
         Tx = 120 + 273
+    else:
+        Tx = 90 + 273
 
     blk.Tx = Var(
         RPB.time,
@@ -631,12 +631,15 @@ def add_single_section_equations(
     )
 
     # ========================= Solids =============================================
-    if mode == "adsorption":
+    if initial_guesses == "adsorption":
         qCO2_in_init = 1
         Ts_in_init = 100 + 273
-    elif mode == "desorption":
+    elif initial_guesses == "desorption":
         qCO2_in_init = 2.5
         Ts_in_init = 110 + 273
+    else:
+        qCO2_in_init = 1
+        Ts_in_init = 100 + 273
 
     blk.qCO2 = Var(
         RPB.time,
@@ -1818,7 +1821,7 @@ def add_single_section_equations(
             )
             iscale.set_scaling_factor(blk.bc_y_in[t, o, "N2"], 1 / value(y_in[t, "N2"]))
 
-        if mode == "desorption":
+        if initial_guesses == "desorption":
             iscale.set_scaling_factor(blk.CO2_capture[t], 1e-4)
             iscale.set_scaling_factor(blk.CO2_capture_eq[t], 1e-4)
             iscale.set_scaling_factor(blk.F_in[t], 1e-2)
@@ -2370,17 +2373,29 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current"):
 
     if configuration == "co-current":
         add_single_section_equations(
-            RPB, section_name="ads", mode="adsorption", gas_flow_direction="forward"
+            RPB,
+            section_name="ads",
+            gas_flow_direction="forward",
+            initial_guesses="adsorption",
         )
         add_single_section_equations(
-            RPB, section_name="des", mode="desorption", gas_flow_direction="forward"
+            RPB,
+            section_name="des",
+            gas_flow_direction="forward",
+            initial_guesses="desorption",
         )
     elif configuration == "counter-current":
         add_single_section_equations(
-            RPB, section_name="ads", mode="adsorption", gas_flow_direction="forward"
+            RPB,
+            section_name="ads",
+            gas_flow_direction="forward",
+            initial_guesses="adsorption",
         )
         add_single_section_equations(
-            RPB, section_name="des", mode="desorption", gas_flow_direction="reverse"
+            RPB,
+            section_name="des",
+            gas_flow_direction="reverse",
+            initial_guesses="desorption",
         )
 
     # fix BCs
