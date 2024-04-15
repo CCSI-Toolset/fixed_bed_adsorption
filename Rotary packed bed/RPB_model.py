@@ -2368,22 +2368,19 @@ def single_section_init2(blk):
 def full_model_creation(lean_temp_connection=True, configuration="co-current"):
     RPB = RotaryPackedBed()
 
-    RPB.ads = Block()
-    RPB.des = Block()
-
     if configuration == "co-current":
         add_single_section_equations(
-            RPB.ads, mode="adsorption", gas_flow_direction="forward"
+            RPB, section_name="ads", mode="adsorption", gas_flow_direction="forward"
         )
         add_single_section_equations(
-            RPB.des, mode="desorption", gas_flow_direction="forward"
+            RPB, section_name="des", mode="desorption", gas_flow_direction="forward"
         )
     elif configuration == "counter-current":
         add_single_section_equations(
-            RPB.ads, mode="adsorption", gas_flow_direction="forward"
+            RPB, section_name="ads", mode="adsorption", gas_flow_direction="forward"
         )
         add_single_section_equations(
-            RPB.des, mode="desorption", gas_flow_direction="reverse"
+            RPB, section_name="des", mode="desorption", gas_flow_direction="reverse"
         )
 
     # fix BCs
@@ -2685,8 +2682,8 @@ def report(blk):
     )
 
     indexed_items = [
-        blk.ads.y_in,
-        blk.ads.y_out,
+        blk.ads.inlet.y_in,
+        blk.ads.outlet.y_out,
     ]
 
     names = []
