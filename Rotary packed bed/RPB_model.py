@@ -445,6 +445,18 @@ def add_single_section_equations(
         doc="inlet mole fraction",
     )
 
+    # add inlet port
+    p = Port(noruleinit=True, doc="Inlet gas port for RPB")
+    setattr(blk, "inlet", p)
+    inlet_dict = {
+        "F_in": blk.F_in,
+        "P_in": blk.P_in,
+        "Tg_in": blk.Tg_in,
+        "y_in": blk.y_in,
+    }
+    for k in inlet_dict.keys():
+        p.add(inlet_dict[k], name=k)
+
     # Inlet values for initialization
     @blk.Expression(RPB.time, doc="inlet total conc. [mol/m^3]")
     def C_tot_in(b, t):
@@ -490,6 +502,18 @@ def add_single_section_equations(
         units=units.K,
         doc="outlet gas temperature [K]",
     )
+
+    # add outlet port
+    p = Port(noruleinit=True, doc="Outlet gas port for RPB")
+    setattr(blk, "outlet", p)
+    outlet_dict = {
+        "F_out": blk.F_out,
+        "P_out": blk.P_out,
+        "Tg_out": blk.Tg_out,
+        "y_out": blk.y_out,
+    }
+    for k in outlet_dict.keys():
+        p.add(outlet_dict[k], name=k)
 
     # ======================== Heat exchanger ======================================
     blk.hgx = Param(
