@@ -48,6 +48,7 @@ from idaes.core.util.model_diagnostics import DegeneracyHunter
 from idaes.models.unit_models import SkeletonUnitModel
 
 from idaes.core import declare_process_block_class, UnitModelBlockData, useDefault
+from idaes.core.util.config import is_transformation_method
 
 import finitevolume
 from idaes.core.solvers.homotopy import homotopy
@@ -70,8 +71,8 @@ __author__ = "Ryan Hughes"
 _log = idaeslog.getLogger(__name__)
 
 
-@declare_process_block_class("RPB")
-class RPBData(UnitModelBlockData):
+@declare_process_block_class("RotaryPackedBed")
+class RotaryPackedBedData(UnitModelBlockData):
     """
     Standard Rotary Packed Bed Unit Model Class
     """
@@ -89,10 +90,10 @@ class RPBData(UnitModelBlockData):
     )
 
     CONFIG.declare(
-        "z_disc_method",
+        "z_transformation_method",
         ConfigValue(
-            default="Finite Difference",
-            domain=In(["Finite Difference", "Collocation"]),
+            default="dae.finite_difference",
+            domain=is_transformation_method,
             description="Axial discretization method",
         ),
     )
@@ -111,7 +112,7 @@ class RPBData(UnitModelBlockData):
         ConfigValue(
             default=2,
             domain=int,
-            description="Number of collocation points for axial direction",
+            description="Number of collocation points for axial direction. Only used with z_transformation_method = dae.collocation",
         ),
     )
 
@@ -425,10 +426,10 @@ class RPBData(UnitModelBlockData):
         )
 
         blk.CONFIG.declare(
-            "o_disc_method",
+            "o_transformation_method",
             ConfigValue(
-                default="Finite Difference",
-                domain=In(["Finite Difference", "Collocation"]),
+                default="dae.finite_difference",
+                domain=is_transformation_method,
                 description="o discretization method",
             ),
         )
@@ -1813,7 +1814,7 @@ class RPBData(UnitModelBlockData):
         # ==============================================================================
 
         # DAE Transformations ==========================================================
-        if self.CONFIG.z_disc_method == "Collocation":
+        if self.CONFIG.z_transformation_method == "dae.collocation":
             z_discretizer = TransformationFactory("dae.collocation")
             z_discretizer.apply_to(
                 blk,
@@ -1822,7 +1823,7 @@ class RPBData(UnitModelBlockData):
                 ncp=self.CONFIG.z_Collpoints,
                 scheme="LAGRANGE-RADAU",
             )
-        elif self.CONFIG.z_disc_method == "Finite Difference":
+        elif self.CONFIG.z_transformation_method == "dae.finite_difference":
             z_discretizer = TransformationFactory("dae.finite_difference")
             if blk.CONFIG.gas_flow_direction == "forward":
                 z_discretizer.apply_to(
@@ -1832,7 +1833,7 @@ class RPBData(UnitModelBlockData):
                 z_discretizer.apply_to(
                     blk, wrt=blk.z, nfe=self.CONFIG.z_nfe, scheme="FORWARD"
                 )
-        elif self.CONFIG.z_disc_method == "Finite Volume":
+        elif self.CONFIG.z_transformation_method == "Finite Volume":
             z_discretizer = TransformationFactory("dae.finite_volume")
             if blk.CONFIG.gas_flow_direction == "forward":
                 z_discretizer.apply_to(
@@ -1851,7 +1852,7 @@ class RPBData(UnitModelBlockData):
                     flow_direction=-1,
                 )
 
-        if blk.CONFIG.o_disc_method == "Collocation":
+        if blk.CONFIG.o_transformation_method == "dae.collocation":
             o_discretizer = TransformationFactory("dae.collocation")
             o_discretizer.apply_to(
                 blk,
@@ -1859,10 +1860,10 @@ class RPBData(UnitModelBlockData):
                 nfe=blk.CONFIG.o_nfe,
                 ncp=blk.CONFIG.o_Collpoints,
             )
-        elif blk.CONFIG.o_disc_method == "Finite Difference":
+        elif blk.CONFIG.o_transformation_method == "dae.finite_difference":
             o_discretizer = TransformationFactory("dae.finite_difference")
             o_discretizer.apply_to(blk, wrt=blk.o, nfe=blk.CONFIG.o_nfe)
-        elif blk.CONFIG.o_disc_method == "Finite Volume":
+        elif blk.CONFIG.o_transformation_method == "Finite Volume":
             o_discretizer = TransformationFactory("dae.finite_volume")
             o_discretizer.apply_to(
                 blk,
@@ -2099,7 +2100,7 @@ class RPBData(UnitModelBlockData):
 
 
 # Creating upper level RPB block
-def RotaryPackedBed():
+def RotaryPackedBed_old():
 
     # blk.time = Set(initialize=[0], doc="time domain [s]")
 
@@ -2710,7 +2711,7 @@ def single_section_init2(blk):
 
 
 def full_model_creation(lean_temp_connection=True, configuration="co-current"):
-    RPB = RotaryPackedBed()
+    RPB = RotaryPackedBed_old()
 
     if configuration == "co-current":
         add_single_section_equations(
