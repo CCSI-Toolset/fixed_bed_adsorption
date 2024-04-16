@@ -16,6 +16,7 @@ Rotary Packed Bed Model
 """
 
 # importing libraries
+from idaes.logger import NOTSET
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -147,6 +148,15 @@ class RotaryPackedBedData(UnitModelBlockData):
         ),
     )
 
+    CONFIG.declare(
+        "flow_configuration",
+        ConfigValue(
+            default="counter-current",
+            domain=In(["counter-current", "co-current"]),
+            description="Flow configuration for flue gas and regeneration gas",
+        ),
+    )
+
     def build(self):
         """
         General build method for RPB
@@ -188,6 +198,7 @@ class RotaryPackedBedData(UnitModelBlockData):
         self.D = Var(
             initialize=(10), domain=PositiveReals, units=units.m, doc="Bed diameter [m]"
         )
+        self.D.fix()
         self.L = Var(
             initialize=(3),
             domain=PositiveReals,
@@ -195,6 +206,7 @@ class RotaryPackedBedData(UnitModelBlockData):
             units=units.m,
             doc="Bed Length [m]",
         )
+        self.L.fix()
 
         self.w_rpm = Var(
             self.flowsheet().time,
@@ -204,6 +216,7 @@ class RotaryPackedBedData(UnitModelBlockData):
             units=units.revolutions / units.min,
             doc="bed rotational speed [revolutions/min]",
         )
+        self.w_rpm.fix()
 
         @self.Expression(self.flowsheet().time, doc="bed rotational speed [radians/s]")
         def w(b, t):
@@ -212,6 +225,21 @@ class RotaryPackedBedData(UnitModelBlockData):
                 * (2 * const.pi * units.radians / units.revolutions)
                 / (60 * units.sec / units.min)
             )
+
+        self._add_section(
+            name="ads", gas_flow_direction="forward", initial_guesses="Adsorption"
+        )
+
+        if self.CONFIG.flow_configuration == "counter-current":
+            self._add_section(
+                name="des", gas_flow_direction="reverse", initial_guesses="Desorption"
+            )
+        elif self.CONFIG.flow_configuration == "co-current":
+            self._add_section(
+                name="des", gas_flow_direction="forward", initial_guesses="Desorption"
+            )
+
+        self._connect_sections()
 
     def _add_general_parameters(self):
         """
@@ -423,38 +451,7 @@ class RotaryPackedBedData(UnitModelBlockData):
         setattr(self, name, SkeletonUnitModel())
         blk = getattr(self, name)
 
-        # blk.CONFIG.declare(
-        #     "o_init_points",
-        #     ConfigValue(
-        #         default=tuple(np.geomspace(0.005, 0.1, 8))
-        #         + tuple(np.linspace(0.1, 0.995, 10)[1:]),
-        #         domain=tuple,
-        #         description="initial o nodes",
-        #     ),
-        # )
-
-        # blk.CONFIG.declare(
-        #     "o_nfe",
-        #     ConfigValue(
-        #         default=20, domain=int, description="Number of o finite elements"
-        #     ),
-        # )
-
-        # blk.CONFIG.declare(
-        #     "o_collocation_points",
-        #     ConfigValue(
-        #         default=2, domain=int, description="Number of o collocation points"
-        #     ),
-        # )
-
-        # blk.CONFIG.declare(
-        #     "o_transformation_method",
-        #     ConfigValue(
-        #         default="dae.finite_difference",
-        #         domain=is_transformation_method,
-        #         description="o discretization method",
-        #     ),
-        # )
+        blk.CONFIG = ConfigBlock()
 
         blk.CONFIG.declare(
             "gas_flow_direction",
@@ -491,6 +488,7 @@ class RotaryPackedBedData(UnitModelBlockData):
             bounds=(0.01, 0.99),
             doc="Fraction of bed occupied by the section[-]",
         )
+        blk.theta.fix()
 
         # embedded heat exchanger and area calculations
         blk.Hx_frac = Param(
@@ -567,19 +565,16 @@ class RotaryPackedBedData(UnitModelBlockData):
             doc="inlet mole fraction",
         )
 
-        # add inlet port
-        p = Port(noruleinit=True, doc="Inlet gas port for RPB")
-        setattr(blk, "inlet", p)
+        # add gas_inlet port
         inlet_dict = {
             "F_in": blk.F_in,
             "P_in": blk.P_in,
             "Tg_in": blk.Tg_in,
             "y_in": blk.y_in,
         }
-        for k in inlet_dict.keys():
-            p.add(inlet_dict[k], name=k)
+        blk.add_ports(name="gas_inlet", member_dict=inlet_dict)
 
-        # Inlet values for initialization
+        # Inlet values, mainly used for initialization of state variables within the bed
         @blk.Expression(self.flowsheet().time, doc="inlet total conc. [mol/m^3]")
         def C_tot_in(b, t):
             return b.P_in[t] / b.Tg_in[t] / self.Rg
@@ -635,17 +630,14 @@ class RotaryPackedBedData(UnitModelBlockData):
             doc="outlet gas temperature [K]",
         )
 
-        # add outlet port
-        p = Port(noruleinit=True, doc="Outlet gas port for RPB")
-        setattr(blk, "outlet", p)
+        # add gas_outlet port
         outlet_dict = {
             "F_out": blk.F_out,
             "P_out": blk.P_out,
             "Tg_out": blk.Tg_out,
             "y_out": blk.y_out,
         }
-        for k in outlet_dict.keys():
-            p.add(outlet_dict[k], name=k)
+        blk.add_ports(name="gas_outlet", member_dict=outlet_dict)
 
         # ======================== Heat exchanger ======================================
         blk.hgx = Param(
@@ -1883,7 +1875,7 @@ class RotaryPackedBedData(UnitModelBlockData):
                     flow_direction=-1,
                 )
 
-        if blk.CONFIG.o_transformation_method == "dae.collocation":
+        if self.CONFIG.o_transformation_method == "dae.collocation":
             o_discretizer = TransformationFactory("dae.collocation")
             o_discretizer.apply_to(
                 blk,
@@ -1891,10 +1883,10 @@ class RotaryPackedBedData(UnitModelBlockData):
                 nfe=self.CONFIG.o_nfe,
                 ncp=self.CONFIG.o_Collpoints,
             )
-        elif blk.CONFIG.o_transformation_method == "dae.finite_difference":
+        elif self.CONFIG.o_transformation_method == "dae.finite_difference":
             o_discretizer = TransformationFactory("dae.finite_difference")
             o_discretizer.apply_to(blk, wrt=blk.o, nfe=self.CONFIG.o_nfe)
-        elif blk.CONFIG.o_transformation_method == "Finite Volume":
+        elif self.CONFIG.o_transformation_method == "Finite Volume":
             o_discretizer = TransformationFactory("dae.finite_volume")
             o_discretizer.apply_to(
                 blk,
@@ -2121,13 +2113,123 @@ class RotaryPackedBedData(UnitModelBlockData):
                                 blk.Flux_kzo[t, z, o, "H2O"], 1e-1
                             )
 
-        # =================================================================================
-        # fixing solid inlet variables ===================================================
+        # ==============================================================================
+
+    def _connect_sections(self):
+        """
+        Method for connecting the sorbent streams between adsorption and desorption sections.
+        """
+
+        # connect rich stream
+        # add equality constraint equating inlet desorption loading to outlet adsorption loading. Same for temperature.
         for t in self.flowsheet().time:
-            for z in blk.z:
-                blk.Ts[t, z, 0].fix()
-                blk.qCO2[t, z, 0].fix()
-        # =================================================================================
+            for z in [0, 1]:
+                self.des.qCO2[t, z, 0].fix()
+                self.des.Ts[t, z, 0].fix()
+
+        @self.Constraint(self.flowsheet().time, self.des.z)
+        def rich_loading_constraint(b, t, z):
+            if 0 < z < 1:
+                return b.des.qCO2[t, z, 0] == b.ads.qCO2[t, z, 1]
+            else:
+                return Constraint.Skip
+
+        @self.Constraint(self.flowsheet().time, self.des.z)
+        def rich_temp_constraint(b, t, z):
+            if 0 < z < 1:
+                return b.des.Ts[t, z, 0] == b.ads.Ts[t, z, 1]
+            else:
+                return Constraint.Skip
+
+        # connect lean stream
+        # add equality constraint equating inlet adsorption loading to outlet desorption loading
+        for t in self.flowsheet().time:
+            for z in [0, 1]:
+                self.ads.qCO2[t, z, 0].fix()
+                self.ads.Ts[t, z, 0].fix()
+
+        @self.Constraint(self.flowsheet().time, self.ads.z)
+        def lean_loading_constraint(b, t, z):
+            if 0 < z < 1:
+                return b.ads.qCO2[t, z, 0] == b.des.qCO2[t, z, 1]
+            else:
+                return Constraint.Skip
+
+        @self.Constraint(self.flowsheet().time, self.ads.z)
+        def lean_temp_constraint(b, t, z):
+            if 0 < z < 1:
+                return b.ads.Ts[t, z, 0] == b.des.Ts[t, z, 1]
+            else:
+                return Constraint.Skip
+
+        # these variables are inactive, just fixing them to same value for plotting purposes
+        for t in self.flowsheet().time:
+            self.ads.qCO2[t, 0, 0].fix(1)
+            self.ads.qCO2[t, 1, 0].fix(1)
+            self.des.qCO2[t, 0, 0].fix(1)
+            self.des.qCO2[t, 1, 0].fix(1)
+
+            self.ads.Ts[t, 0, 0].fix(100 + 273)
+            self.ads.Ts[t, 1, 0].fix(100 + 273)
+            self.des.Ts[t, 0, 0].fix(100 + 273)
+            self.des.Ts[t, 1, 0].fix(100 + 273)
+
+        # add constraint so that the fraction of each section adds to 1
+        self.des.theta.unfix()  # unfix des side var
+
+        @self.Constraint(doc="Theta summation constraint")
+        def theta_constraint(b):
+            return b.ads.theta + b.des.theta == 1
+
+    def initialize_build(
+        blk,
+        outlvl=idaeslog.NOTSET,
+        optarg=None,
+        initialization_points: list = [1],
+    ):
+        """
+        Initialization routine for the RPB unit model.
+        """
+
+        # Set up logger for initialization and solve
+        init_log = idaeslog.getInitLogger(blk.name, outlvl, tag="unit")
+        solve_log = idaeslog.getSolveLogger(blk.name, outlvl, tag="unit")
+
+        # create Block init object
+        init_obj = BlockTriangularizationInitializer()
+        init_obj.config.block_solver_options = optarg
+
+        init_log.info("Beginning Initialization")
+
+        init_log.info_high("Checking degrees of freedom")
+        if degrees_of_freedom(blk) != 0:
+            init_log.error("Degrees of freedom not zero. Exiting initialization.")
+            return
+
+        init_log.info(
+            "Initialization using BlockTriangularizationInitializer() Starting"
+        )
+
+        for i in initialization_points:
+            init_log.info_high(f"Initialization point: {i}")
+            blk.ads.R_MT_gas = i
+            blk.des.R_MT_gas = i
+            blk.ads.R_MT_coeff = i
+            blk.des.R_MT_coeff = i
+            blk.ads.R_HT_ghx = i
+            blk.des.R_HT_ghx = i
+            blk.ads.R_HT_gs = i
+            blk.des.R_HT_gs = i
+            blk.ads.R_delH = i
+            blk.des.R_delH = i
+            with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
+                init_obj.config.block_solver_call_options = {"tee": slc.tee}
+                init_obj.initialization_routine(blk)
+
+        init_log.info("Initialization Routine Finished")
+
+    def plotting(self, save_option: bool = False):
+        full_contactor_plotting(self, save_option=save_option)
 
 
 # Creating upper level RPB block
