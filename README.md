@@ -23,7 +23,7 @@ The following instructions assume you have anaconda installed. We suggest create
 ### Step 3: install `Pyomo` from specified branches
 - install from the following branch for a modified version of `Pyomo`:
 
-`pip install git+https://github.com/jialuw96/pyomo/tree/rotary`
+`pip install git+https://github.com/jialuw96/pyomo/tree/RPB_MBDOE`
 
 
 ### Step 4: install `jupyter notebook`
