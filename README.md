@@ -9,7 +9,7 @@ The following instructions assume you have anaconda installed. We suggest create
 ### Step 1: create a new environment 
 - create new environment, called for e.g. `rotary`, with `conda` with `Python` version 3.8
 
-`conda create --name measurement_optimization python=3.8`
+`conda create --name rotary python=3.8`
 
 `conda activate rotary`
    
