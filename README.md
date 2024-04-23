@@ -74,9 +74,22 @@ The following instructions assume you have anaconda installed. We suggest create
 - `Countercurrent_results/MBDoE_results/MBDOE_sens`: folder, contained the process models ran with different variables. For e.g., .Tgin_des_391/Tgin_ads_368 means ads.T = 368K, des.T=391K
 
 
+## Run Models
+
+Model code and how to run them are provided by Ryan Hughes in `Ryan-Hughes-8/fixed_bed_adsorption` repository: 
+
+Co-current flow model: https://github.com/Ryan-Hughes-8/fixed_bed_adsorption
+
+Counter-current flow model:  https://github.com/Ryan-Hughes-8/fixed_bed_adsorption/tree/counter-current-configuration
+
 ## Rerun for results 
+
+The rerun instructions are for counter-current flow model, which is the model we use for the paper / thesis results. 
 
 ### Measurement optimization 
 
+#### Step 1: Analyze 
+
+Run `run_countercurrent_model.py`, for 
 
 
