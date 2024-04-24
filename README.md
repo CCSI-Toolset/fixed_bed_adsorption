@@ -82,14 +82,23 @@ Co-current flow model: https://github.com/Ryan-Hughes-8/fixed_bed_adsorption
 
 Counter-current flow model:  https://github.com/Ryan-Hughes-8/fixed_bed_adsorption/tree/counter-current-configuration
 
-## Rerun for results 
+## Run measurement optimization results 
 
 The rerun instructions are for counter-current flow model, which is the model we use for the paper / thesis results. 
 
-### Measurement optimization 
+### Step 1: Achieve sensitivity information (Jacobian) and error variance matrix, process the data for MO analysis
 
-#### Step 1: Analyze 
+- Run `Counterflow_MO_data_process.ipynb` to generate all the sensitivity data
 
-Run `run_countercurrent_model.py`, for 
+- Run `Counterflow_Jacobian_organize.ipynb` to organize the sensitivity data to .csv files that MO code use
+
+### Step 2: Run MO analysis 
+
+- In `Countercurrent_MO.py`, find the toggles in line 17 - 27
+- Choose mixed-integer option by `mip_option`
+- Choose objective by `obective`
+- Choose budget set. It is default to be the budget ranges we use for the paper, from 2000 to 10000
+
+
 
 
