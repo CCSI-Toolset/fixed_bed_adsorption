@@ -114,7 +114,7 @@ The rerun instructions are for counter-current flow model, which is the model we
 - `Counterflow-finite-difference-analysis.ipynb`: MBDoE analysis applying finite difference method to the RPB model. It runs the grid search, and generates the thesis results.
 
 
-## Draw figures 
+## Reproduce figures 
 
 - `draw_figures.ipynb`: include the functions and the path of results to reproduce Fig. 4.2, 4.3, 4.4, 4.5 in the Chapter 4 of Jialu's thesis. 
 
