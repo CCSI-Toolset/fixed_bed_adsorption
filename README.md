@@ -103,6 +103,14 @@ The rerun instructions are for counter-current flow model, which is the model we
 
 ## Run MBDoE analysis
 
+### Run MBDoE with `k_aug` 
+
+- `Countercurrent_MBDoE.ipynb`: MBDoE analysis applying `Pyomo.DoE` and `k_aug` to the RPB model with `compute_FIM` and `run_grid_search`
+
+### Run MBDoE with finite difference 
+
+- `Counterflow-finite-difference-analysis.ipynb`: MBDoE analysis applying finite difference method to the RPB model
+
 
 
 
