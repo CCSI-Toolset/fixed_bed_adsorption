@@ -53,7 +53,9 @@ The following instructions assume you have anaconda installed. We suggest create
 
 - `Countercurrent_MBDoE.ipynb`: MBDoE analysis applying `Pyomo.DoE` and `k_aug` to the RPB model with `compute_FIM` and `run_grid_search`. `stochastic_program` is also tried but not debugged
 
-- `Counterflow_MO_data_process.ipynb`: Process the sensitivity data and reformulate the data structure for MO analysis 
+- `Counterflow_MO_data_process.ipynb`: Process the sensitivity data for MO analysis
+
+- `Counterflow_Jacobian_process.ipynb`: Reformulate the data structure for MO analysis
 
 - `countercurrent_MO.py`: Measurement optimization analysis to the RPB model
 
@@ -109,8 +111,12 @@ The rerun instructions are for counter-current flow model, which is the model we
 
 ### Run MBDoE with finite difference 
 
-- `Counterflow-finite-difference-analysis.ipynb`: MBDoE analysis applying finite difference method to the RPB model
+- `Counterflow-finite-difference-analysis.ipynb`: MBDoE analysis applying finite difference method to the RPB model. It runs the grid search, and generates the thesis results.
 
+
+## Draw figures 
+
+- `draw_figures.ipynb`: include the functions and the path of results to reproduce Fig. 4.2, 4.3, 4.4, 4.5 in the Chapter 4 of Jialu's thesis. 
 
 
 
