@@ -124,7 +124,7 @@ class SensitivityData:
 
         # infer the number of parameters from the shape of jacobian
         # the first column is the measurement name, so needs to be deleted
-        self.n_parameters = len(jacobian_array[0]) 
+        self.n_parameters = len(jacobian_array[0])
 
         # store the original Jacobian matrix in object
         self.jacobian = jacobian_array
@@ -160,9 +160,11 @@ class SensitivityData:
             max_measure_idx = max(static_measurement_idx)
         elif not static_measurement_idx:
             max_measure_idx = max(dynamic_measurement_idx)
-            
+
         else:
-            max_measure_idx = max(max(static_measurement_idx), max(dynamic_measurement_idx))
+            max_measure_idx = max(
+                max(static_measurement_idx), max(dynamic_measurement_idx)
+            )
         # the total rows of Q should be equal or more than the number of maximum index given by the argument
         if len(self.jacobian) < max_measure_idx * self.Nt:
             raise ValueError(
@@ -965,12 +967,12 @@ class MeasurementOptimizer:
         total_measure_initial=1,
         static_dynamic_pair=None,
         time_interval_all_dynamic=False,
-        multi_component_pairs = None,
-        max_num_z = None, 
-        max_num_o = None, 
-        max_num_z_lists = None,
-        max_num_o_lists = None, 
-        max_lists = None,
+        multi_component_pairs=None,
+        max_num_z=None,
+        max_num_o=None,
+        max_num_z_lists=None,
+        max_num_o_lists=None,
+        max_lists=None,
         total_manual_num_init=10,
         cost_initial=100,
         fim_diagonal_small_element=0,
@@ -1370,41 +1372,44 @@ class MeasurementOptimizer:
                 m.dim_dynamic, m.dim_dynamic_t, rule=dynamic_fix_yd
             )
             m.dynamic_con2 = pyo.Constraint(m.dim_dynamic, rule=dynamic_fix_yd_con2)
-            
-            
-            #if multi_component_pairs is not None: 
-                
-            #for a, b in multi_component_pairs:
-            #    def multi_comp_rules(m):    
+
+            # if multi_component_pairs is not None:
+
+            # for a, b in multi_component_pairs:
+            #    def multi_comp_rules(m):
             #        return m.cov_y[a,a] == m.cov_y[b,b]
             #    con_name = "multi_comp_con_"+str(a)+"_"+str(b)
             #    m.add_component(con_name, pyo.Constraint(expr=multi_comp_rules))
-                
-                    
-            #if max_num_z is not None:
+
+            # if max_num_z is not None:
             for k, list_range in enumerate(max_lists):
+
                 def max_num_each_rule(m):
-                    chosen_num = sum(m.cov_y[i,i] for i in list_range)
-                    return chosen_num <= max_num_z*max_num_o
-                con_name = "max_loc_con_"+str(k)
+                    chosen_num = sum(m.cov_y[i, i] for i in list_range)
+                    return chosen_num <= max_num_z * max_num_o
+
+                con_name = "max_loc_con_" + str(k)
                 m.add_component(con_name, pyo.Constraint(expr=max_num_each_rule))
-                
+
             for k, list_range in enumerate(max_num_z_lists):
+
                 def max_num_z_rule(m):
-                    chosen_num = sum(m.cov_y[i,i] for i in list_range)
-                    return chosen_num <= max_num_z 
-                con_name = "max_z_con_"+str(k)
+                    chosen_num = sum(m.cov_y[i, i] for i in list_range)
+                    return chosen_num <= max_num_z
+
+                con_name = "max_z_con_" + str(k)
                 m.add_component(con_name, pyo.Constraint(expr=max_num_z_rule))
-                    
-            #if max_num_o is not None:
-                
+
+            # if max_num_o is not None:
+
             for k, list_range in enumerate(max_num_o_lists):
+
                 def max_num_o_rule(m):
-                    chosen_num = sum(m.cov_y[i,i] for i in list_range)
-                    return chosen_num <= max_num_o 
-                con_name = "max_o_con_"+str(k)
+                    chosen_num = sum(m.cov_y[i, i] for i in list_range)
+                    return chosen_num <= max_num_o
+
+                con_name = "max_o_con_" + str(k)
                 m.add_component(con_name, pyo.Constraint(expr=max_num_o_rule))
-                 
 
             # if each manual number smaller than a given limit
             if self.each_manual_number is not None:
@@ -1513,12 +1518,7 @@ class MeasurementOptimizer:
             # add model to object. This model lacks objective function which will be added separately later
             self.mod = m
 
-    def _add_objective(
-        self,
-        obj=ObjectiveLib.A,
-        mix_obj=False,
-        alpha=1,
-    ):
+    def _add_objective(self, obj=ObjectiveLib.A, mix_obj=False, alpha=1):
         """
         Add objective function to the model.
 
@@ -1692,12 +1692,12 @@ class MeasurementOptimizer:
 
         elif not mip_option and objective == ObjectiveLib.A:
             solver = pyo.SolverFactory('ipopt')
-            #solver.options['linear_solver'] = "ma57"
+            # solver.options['linear_solver'] = "ma57"
             results = solver.solve(self.mod, tee=True)
 
-            #solver = pyo.SolverFactory("gurobi", solver_io="python")
-            #solver.options["mipgap"] = 0.1
-            #results = solver.solve(self.mod, tee=True)
+            # solver = pyo.SolverFactory("gurobi", solver_io="python")
+            # solver.options["mipgap"] = 0.1
+            # results = solver.solve(self.mod, tee=True)
 
         elif mip_option and objective == ObjectiveLib.A:
             solver = pyo.SolverFactory("gurobi", solver_io="python")
@@ -1739,7 +1739,7 @@ class MeasurementOptimizer:
                 nlp_solver="cyipopt",
                 calculate_dual_at_solution=True,
                 tee=True,
-                #call_before_subproblem_solve=self.customized_warmstart,
+                # call_before_subproblem_solve=self.customized_warmstart,
                 # add_no_good_cuts=True,
                 stalling_limit=1000,
                 iteration_limit=150,
@@ -1750,7 +1750,7 @@ class MeasurementOptimizer:
                     "options": {
                         "hessian_approximation": "limited-memory",
                         "output_file": "console_output",
-                        #"linear_solver": "mumps",
+                        # "linear_solver": "mumps",
                         "max_iter": 3000,
                         # "halt_on_ampl_error": "yes",
                         "bound_push": 1e-10,
@@ -1798,12 +1798,12 @@ class MeasurementOptimizer:
         total_measure_initial=1,
         static_dynamic_pair=None,
         time_interval_all_dynamic=False,
-        multi_component_pairs = None,
-        max_num_z = None, 
-        max_num_o = None, 
-        max_num_z_lists = None,
-        max_num_o_lists = None, 
-        max_lists = None,
+        multi_component_pairs=None,
+        max_num_z=None,
+        max_num_o=None,
+        max_num_z_lists=None,
+        max_num_o_lists=None,
+        max_lists=None,
         total_manual_num_init=10,
         cost_initial=100,
         fim_diagonal_small_element=0,
@@ -1879,12 +1879,12 @@ class MeasurementOptimizer:
             total_measure_initial=total_measure_initial,  # initial number of SCMs and time points selected
             static_dynamic_pair=static_dynamic_pair,  # if one measurement can be seen as both DCM and SCM
             time_interval_all_dynamic=time_interval_all_dynamic,  # time intervals between two time points of DCMs
-            multi_component_pairs = multi_component_pairs,
-            max_num_z = max_num_z, 
-            max_num_o = max_num_o, 
-            max_num_z_lists = max_num_z_lists,
-            max_num_o_lists = max_num_o_lists, 
-            max_lists = max_lists,
+            multi_component_pairs=multi_component_pairs,
+            max_num_z=max_num_z,
+            max_num_o=max_num_o,
+            max_num_z_lists=max_num_z_lists,
+            max_num_o_lists=max_num_o_lists,
+            max_lists=max_lists,
             total_manual_num_init=total_manual_num_init,  # total time points of DCMs selected
             cost_initial=cost_initial,  # initial cost of the current solution
             fim_diagonal_small_element=fim_diagonal_small_element,  # a small element added to FIM diagonals
@@ -1934,9 +1934,7 @@ class MeasurementOptimizer:
 
         # update the initialization according to the new budget
         # locate the binary solution file according to the new budget
-        initial_file_name = self._locate_initial_file(
-            budget_opt,
-        )  # new budget
+        initial_file_name = self._locate_initial_file(budget_opt)  # new budget
         # initialize the model with the binary decision variables
         self._initialize_binary(initial_file_name)
 
@@ -1977,8 +1975,8 @@ class MeasurementOptimizer:
 
         ans_y, _ = self.extract_solutions()
         print("pyomo calculated cost:", pyo.value(self.mod.cost))
-        #print("if install dynamic measurements:")
-        #print(pyo.value(self.mod.if_install_dynamic[3]))
+        # print("if install dynamic measurements:")
+        # print(pyo.value(self.mod.if_install_dynamic[3]))
 
         if store_name:
 
@@ -2399,7 +2397,7 @@ class MeasurementOptimizer:
                     ans_y[i][j] = round(ans_y[i][j], 2)
 
         for c in range(self.n_static_measurements):
-            if ans_y[c,c] >=0.5:
+            if ans_y[c, c] >= 0.5:
                 print(self.measure_name[c], ": ", ans_y[c, c])
 
         # The DCM solutions can be very sparse and contain a lot of 0

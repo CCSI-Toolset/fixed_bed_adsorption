@@ -3,6 +3,7 @@ Created on Thu Feb 16 08:22:36 2023
 
 @author: ryank
 """
+
 # importing libraries
 import numpy as np
 import matplotlib.pyplot as plt
@@ -55,9 +56,7 @@ def RPB_model(mode, kaug=True, param_perturb=None):
     o_init_points = (0.01, 0.99)
 
     m.z = ContinuousSet(
-        doc="axial nodes [dimensionless]",
-        bounds=z_bounds,
-        initialize=z_init_points,
+        doc="axial nodes [dimensionless]", bounds=z_bounds, initialize=z_init_points
     )
 
     m.o = ContinuousSet(
@@ -162,11 +161,7 @@ def RPB_model(mode, kaug=True, param_perturb=None):
 
     m.Tg_in = Var(initialize=Tg_in, units=units.K, doc="Inlet flue gas temperature [K]")
 
-    m.y_in = Var(
-        m.component_list,
-        initialize=y_in,
-        doc="inlet mole fraction",
-    )
+    m.y_in = Var(m.component_list, initialize=y_in, doc="inlet mole fraction")
 
     # Inlet values for initialization
     @m.Expression(doc="inlet total conc. [mol/m^3]")
@@ -197,10 +192,7 @@ def RPB_model(mode, kaug=True, param_perturb=None):
     )
 
     m.y_out = Var(
-        m.component_list,
-        bounds=(0, 1),
-        initialize=y_in,
-        doc="outlet mole fraction",
+        m.component_list, bounds=(0, 1), initialize=y_in, doc="outlet mole fraction"
     )
 
     m.Tg_out = Var(
@@ -237,7 +229,7 @@ def RPB_model(mode, kaug=True, param_perturb=None):
         doc="solid heat capacity [kJ/kg/K]",
     )
 
-    if param_perturb is not None: 
+    if param_perturb is not None:
         rho_sol_val = param_perturb["rho_sol"]
     else:
         rho_sol_val = 1144
@@ -268,12 +260,11 @@ def RPB_model(mode, kaug=True, param_perturb=None):
             doc="heat exchanger heat transfer coeff. W/m^2/K",
         )
 
-        m.hgx.setlb(25*1e-3)
-        m.hgx.setub(25*1e-3)
+        m.hgx.setlb(25 * 1e-3)
+        m.hgx.setub(25 * 1e-3)
 
-    
     else:
-        
+
         if param_perturb is not None:
             hgx_val = param_perturb["hgx"]
         else:
@@ -284,8 +275,6 @@ def RPB_model(mode, kaug=True, param_perturb=None):
             units=units.kW / units.m**2 / units.K,
             doc="heat exchanger heat transfer coeff. W/m^2/K",
         )
-        
-        
 
     if mode == "adsorption":
         Tx = 90 + 273
@@ -321,7 +310,7 @@ def RPB_model(mode, kaug=True, param_perturb=None):
         units=units.kW / units.m / units.K,
         doc="pure component gas phase thermal conductivity [kW/m/K]",
     )
-    
+
     if param_perturb is not None:
         DmCO2_val = param_perturb["DmCO2"]
     else:
@@ -789,15 +778,17 @@ def RPB_model(mode, kaug=True, param_perturb=None):
 
         m.C1.setlb(2.562434e-12)
         m.C1.setub(2.562434e-12)
-        
+
     else:
-    
+
         if param_perturb is not None:
             C1_val = param_perturb["C1"]
         else:
             C1_val = 2.562434e-12
 
-        m.C1 = Param(initialize=C1_val, doc="lumped MT parameter [m^2/K^0.5/s]", mutable=True)
+        m.C1 = Param(
+            initialize=C1_val, doc="lumped MT parameter [m^2/K^0.5/s]", mutable=True
+        )
 
     @m.Expression(m.z, m.o, doc="effective diffusion in solids [m^2/s]")
     def Deff(m, z, o):
@@ -823,7 +814,7 @@ def RPB_model(mode, kaug=True, param_perturb=None):
     delH_b1 = 1.59
     delH_b2 = 3.39
 
-    # perturb parameter 
+    # perturb parameter
     if param_perturb is not None:
         delH_1 = param_perturb["delH_1"]
     else:
@@ -833,47 +824,50 @@ def RPB_model(mode, kaug=True, param_perturb=None):
         delH_2 = param_perturb["delH_2"]
     else:
         delH_2 = 77.11
-    
+
     if param_perturb is not None:
         delH_3 = param_perturb["delH_3"]
     else:
         delH_3 = 21.25
-        
+
     if kaug:
         m.delH_1 = Var(initialize=98.76)
 
         m.delH_1.setlb(98.76)
         m.delH_1.setub(98.76)
-        
+
         m.delH_2 = Var(initialize=77.11)
 
         m.delH_2.setlb(77.11)
         m.delH_2.setub(77.11)
-        
+
         m.delH_3 = Var(initialize=21.25)
 
         m.delH_3.setlb(21.25)
         m.delH_3.setub(21.25)
-        
+
     else:
         m.delH_1 = Param(initialize=98.76, mutable=True)
-        
+
         m.delH_2 = Param(initialize=77.11, mutable=True)
-        
+
         m.delH_3 = Param(initialize=21.25, mutable=True)
 
     @m.Expression(m.z, m.o, doc="heat of adsorption [kJ/mol]")
     def delH_CO2(m, z, o):
-        return -(m.delH_1 - (m.delH_1 - m.delH_2)* exp(
-            delH_a1 * (m.qCO2_eq[z, o] - delH_b1))
-        ) / (1 + exp(delH_a1 * (m.qCO2_eq[z, o] - delH_b1))) - (m.delH_2 - m.delH_3) * exp(
+        return -(
+            m.delH_1
+            - (m.delH_1 - m.delH_2) * exp(delH_a1 * (m.qCO2_eq[z, o] - delH_b1))
+        ) / (1 + exp(delH_a1 * (m.qCO2_eq[z, o] - delH_b1))) - (
+            m.delH_2 - m.delH_3
+        ) * exp(
             delH_a2 * (m.qCO2_eq[z, o] - delH_b2)
         ) / (
             1 + exp(delH_a2 * (m.qCO2_eq[z, o] - delH_b2))
         )
 
-    #@m.Expression(m.z, m.o, doc="heat of adsorption [kJ/mol]")
-    #def delH_CO2(m, z, o):
+    # @m.Expression(m.z, m.o, doc="heat of adsorption [kJ/mol]")
+    # def delH_CO2(m, z, o):
     #    return -(delH_1 - (delH_1 - delH_2)* exp(
     #        delH_a1 * (m.qCO2_eq[z, o] - delH_b1))
     #    ) / (1 + exp(delH_a1 * (m.qCO2_eq[z, o] - delH_b1))) - (delH_2 - delH_3) * exp(
@@ -1333,7 +1327,7 @@ def plotting(blk):
         return closest_ind
 
     theta_query = [0.05, 0.5, 0.95]
-    z_query = [0.05,  0.5, 0.95]
+    z_query = [0.05, 0.5, 0.95]
 
     def model_plot_CO2g_RKH(m):
         z = list(m.z)
@@ -1347,8 +1341,8 @@ def plotting(blk):
                 y_CO2[k].append(m.y["CO2", i, theta[j]]())
             k += 1
 
-        #print(yCO2)
-        #print("length:", np.shape(yCO2))
+        # print(yCO2)
+        # print("length:", np.shape(yCO2))
 
         # fig = plt.figure(figsize=(10,6))
         fig = plt.figure()
@@ -1552,6 +1546,7 @@ def plotting(blk):
 
     plt.show()
 
+
 def plotting_and_saving(blk):
     def find_closest_ind(ind_list, query_values):
         closest_ind = []
@@ -1578,13 +1573,13 @@ def plotting_and_saving(blk):
                 y_CO2[k].append(m.y["CO2", i, theta[j]]())
             k += 1
 
-        #print(y_CO2)
-        #print("length:", np.shape(y_CO2))
-        
+        # print(y_CO2)
+        # print("length:", np.shape(y_CO2))
+
         record_dict["y_CO2_0"] = y_CO2[0]
         record_dict["y_CO2_1"] = y_CO2[1]
         record_dict["y_CO2_2"] = y_CO2[2]
-        
+
         # fig = plt.figure(figsize=(10,6))
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
@@ -1610,7 +1605,7 @@ def plotting_and_saving(blk):
                 C_CO2[k].append(m.C["CO2", i, theta[j]]())
             k += 1
 
-        #print(np.shape(C_CO2))
+        # print(np.shape(C_CO2))
         record_dict["C_CO2_0"] = C_CO2[0]
         record_dict["C_CO2_1"] = C_CO2[1]
         record_dict["C_CO2_2"] = C_CO2[2]
@@ -1642,7 +1637,7 @@ def plotting_and_saving(blk):
                 C_N2[k].append(m.C["N2", i, theta[j]]())
             k += 1
 
-        #print(np.shape(C_N2))
+        # print(np.shape(C_N2))
         record_dict["C_N2_0"] = C_N2[0]
         record_dict["C_N2_1"] = C_N2[1]
         record_dict["C_N2_2"] = C_N2[2]
@@ -1672,7 +1667,7 @@ def plotting_and_saving(blk):
                 Tg[k].append(m.Tg[i, theta[j]]())
             k += 1
 
-        #print(np.shape(Tg))
+        # print(np.shape(Tg))
         record_dict["Tg_0"] = Tg[0]
         record_dict["Tg_1"] = Tg[1]
         record_dict["Tg_2"] = Tg[2]
@@ -1702,11 +1697,11 @@ def plotting_and_saving(blk):
                 Pg[k].append(m.P[i, theta[j]]())
             k += 1
 
-        #print(np.shape(Pg))
+        # print(np.shape(Pg))
         record_dict["Pg_0"] = Pg[0]
         record_dict["Pg_1"] = Pg[1]
         record_dict["Pg_2"] = Pg[2]
-        
+
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
         ax.set_xlabel("Normalized Axial distance", fontsize=16)
@@ -1730,11 +1725,11 @@ def plotting_and_saving(blk):
             for i in z:
                 vg[k].append(m.vel[i, theta[j]]())
             k += 1
-        #print(np.shape(vg))
+        # print(np.shape(vg))
         record_dict["vg_0"] = vg[0]
         record_dict["vg_1"] = vg[1]
         record_dict["vg_2"] = vg[2]
-        
+
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
         ax.set_xlabel("Normalized Axial distance", fontsize=16)
@@ -1744,7 +1739,7 @@ def plotting_and_saving(blk):
             ax.plot(z, vg[i], "-o", label="theta=" + str(theta[theta_test[i]]))
         ax.legend()
 
-        return record_dict 
+        return record_dict
 
     measure = model_plot_vg_RKH(blk, measure)
 
@@ -1759,7 +1754,7 @@ def plotting_and_saving(blk):
             for i in theta:
                 qCO2[k].append(m.qCO2[z[j], i]())
             k += 1
-        #print(np.shape(qCO2))
+        # print(np.shape(qCO2))
         record_dict["qCO2_0"] = qCO2[0]
         record_dict["qCO2_1"] = qCO2[1]
         record_dict["qCO2_2"] = qCO2[2]
@@ -1787,11 +1782,11 @@ def plotting_and_saving(blk):
             for i in theta:
                 Ts[k].append(m.Ts[z[j], i]())
             k += 1
-        #print(np.shape(Ts))
+        # print(np.shape(Ts))
         record_dict["Ts_0"] = Ts[0]
         record_dict["Ts_1"] = Ts[1]
         record_dict["Ts_2"] = Ts[2]
-        
+
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
         ax.set_xlabel("Theta distance (radians)", fontsize=16)
@@ -1817,12 +1812,11 @@ def plotting_and_saving(blk):
                 y[k].append(m.y["CO2", z[j], i]())
             k += 1
 
-        #print(np.shape(y))
+        # print(np.shape(y))
         record_dict["ytheta_0"] = y[0]
         record_dict["ytheta_1"] = y[1]
         record_dict["ytheta_2"] = y[2]
-        
-        
+
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
         ax.set_xlabel("Theta distance (radians)", fontsize=16)
@@ -1838,6 +1832,7 @@ def plotting_and_saving(blk):
     measure = model_plot_yCO2theta_RKH(blk, measure)
 
     return measure
+
 
 def get_init_factors(blk):
     d1 = {
@@ -1993,14 +1988,7 @@ def homotopy_init_routine(blk):
         blk.R_MT_solid,
     ]
 
-    targets_list = [
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-    ]
+    targets_list = [1, 1, 1, 1, 1, 1]
 
     # homotopy solver
     homotopy(

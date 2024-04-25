@@ -35,7 +35,7 @@ from idaes.core.util import to_json, from_json, StoreSpec
 import idaes.core.util.scaling as iscale
 from idaes.core.util.model_diagnostics import DegeneracyHunter
 
-#import finitevolume
+# import finitevolume
 from idaes.core.solvers.homotopy import homotopy
 from idaes.core.initialization.block_triangularization import (
     BlockTriangularizationInitializer,
@@ -48,28 +48,61 @@ def RPB_model(mode, parameters, gas_flow_direction=1):
 
     z_bounds = (0, 1)
     # z_init_points = (0.01, 0.99)
-    #z_init_points = tuple(np.linspace(0.01, 0.1, 5)) + tuple(np.linspace(0.9, 0.99, 5))
-    #z_init_points = tuple(np.geomspace(0.01, 0.5, 9)[:-1]) + tuple(
+    # z_init_points = tuple(np.linspace(0.01, 0.1, 5)) + tuple(np.linspace(0.9, 0.99, 5))
+    # z_init_points = tuple(np.geomspace(0.01, 0.5, 9)[:-1]) + tuple(
     #    (1 - np.geomspace(0.01, 0.5, 9))[::-1]
-    #)
-    z_init_points = [0.01, 0.016306894089533095, 0.026591479484724942, 0.04336244396414017, 0.07071067811865475, 0.11530715390799683, 0.18803015465431966, 0.3066187817586519, 0.5, 0.6933812182413481, 0.8119698453456803, 0.8846928460920032, 0.9292893218813453, 0.9566375560358599, 0.973408520515275, 0.9836931059104669, 0.99]
+    # )
+    z_init_points = [
+        0.01,
+        0.016306894089533095,
+        0.026591479484724942,
+        0.04336244396414017,
+        0.07071067811865475,
+        0.11530715390799683,
+        0.18803015465431966,
+        0.3066187817586519,
+        0.5,
+        0.6933812182413481,
+        0.8119698453456803,
+        0.8846928460920032,
+        0.9292893218813453,
+        0.9566375560358599,
+        0.973408520515275,
+        0.9836931059104669,
+        0.99,
+    ]
     # z_init_points = tuple(np.linspace(0, 0.1, 5)) + (0.99,)
 
     o_bounds = (0, 1)
     # o_init_points = tuple(np.linspace(0.0,0.01,5))+tuple(np.linspace(0.99,1,5))
     # o_init_points = tuple(np.linspace(0.01, 0.1, 4)) + (0.99,)
     # o_init_points = tuple(np.geomspace(0.01, 0.99, 10))
-    #o_init_points = list(tuple(np.geomspace(0.005, 0.1, 8)) + tuple(
+    # o_init_points = list(tuple(np.geomspace(0.005, 0.1, 8)) + tuple(
     #    np.linspace(0.1, 0.995, 10)[1:]
-    #))
-    o_init_points = [0.005, 0.007670637023171957, 0.01176773446825126, 0.01805320393820497, 0.027695914903053766, 0.042489062049196814, 0.0651836344868839, 0.1, 
-                     0.19944444444444445, 0.29888888888888887, 0.3983333333333333, 0.49777777777777776, 0.5972222222222222, 0.6966666666666667, 0.7961111111111111, 0.8955555555555555, 0.995]
+    # ))
+    o_init_points = [
+        0.005,
+        0.007670637023171957,
+        0.01176773446825126,
+        0.01805320393820497,
+        0.027695914903053766,
+        0.042489062049196814,
+        0.0651836344868839,
+        0.1,
+        0.19944444444444445,
+        0.29888888888888887,
+        0.3983333333333333,
+        0.49777777777777776,
+        0.5972222222222222,
+        0.6966666666666667,
+        0.7961111111111111,
+        0.8955555555555555,
+        0.995,
+    ]
     # o_init_points = (0.01, 0.99)
 
     m.z = ContinuousSet(
-        doc="axial nodes [dimensionless]",
-        bounds=z_bounds,
-        initialize=z_init_points,
+        doc="axial nodes [dimensionless]", bounds=z_bounds, initialize=z_init_points
     )
 
     m.o = ContinuousSet(
@@ -189,11 +222,7 @@ def RPB_model(mode, parameters, gas_flow_direction=1):
 
     m.Tg_in = Var(initialize=Tg_in, units=units.K, doc="Inlet flue gas temperature [K]")
 
-    m.y_in = Var(
-        m.component_list,
-        initialize=y_in,
-        doc="inlet mole fraction",
-    )
+    m.y_in = Var(m.component_list, initialize=y_in, doc="inlet mole fraction")
 
     # Inlet values for initialization
     @m.Expression(doc="inlet total conc. [mol/m^3]")
@@ -224,10 +253,7 @@ def RPB_model(mode, parameters, gas_flow_direction=1):
     )
 
     m.y_out = Var(
-        m.component_list,
-        bounds=(0, 1),
-        initialize=y_in,
-        doc="outlet mole fraction",
+        m.component_list, bounds=(0, 1), initialize=y_in, doc="outlet mole fraction"
     )
 
     m.Tg_out = Var(
@@ -264,18 +290,17 @@ def RPB_model(mode, parameters, gas_flow_direction=1):
         return 6 / m.dp * (1 - m.eb)
 
     # ======================== Heat exchanger ======================================
-    #m.hgx = Param(
+    # m.hgx = Param(
     #    initialize=(parameters["hgx"]),  # assumed value
     #    units=units.kW / units.m**2 / units.K,
     #    doc="heat exchanger heat transfer coeff. kW/m^2/K",
-    #)
+    # )
 
     m.hgx = Var(
         initialize=(parameters["hgx"]),  # assumed value
         units=units.kW / units.m**2 / units.K,
         doc="heat exchanger heat transfer coeff. kW/m^2/K",
     )
-
 
     if mode == "adsorption":
         Tx = 90 + 273
@@ -771,7 +796,7 @@ def RPB_model(mode, parameters, gas_flow_direction=1):
     # ======
 
     # internal mass transfer ===
-    #m.C1 = Param(initialize=parameters["C1"], doc="lumped MT parameter [m^2/K^0.5/s]", mutable=True)
+    # m.C1 = Param(initialize=parameters["C1"], doc="lumped MT parameter [m^2/K^0.5/s]", mutable=True)
     m.C1 = Var(initialize=parameters["C1"], doc="lumped MT parameter [m^2/K^0.5/s]")
 
     @m.Expression(m.z, m.o, doc="effective diffusion in solids [m^2/s]")
@@ -792,13 +817,13 @@ def RPB_model(mode, parameters, gas_flow_direction=1):
     delH_a2 = 29.10
     delH_b1 = 1.59
     delH_b2 = 3.39
-    #delH_1 = 98.76
-    #delH_2 = 77.11
-    #delH_3 = 21.25
+    # delH_1 = 98.76
+    # delH_2 = 77.11
+    # delH_3 = 21.25
 
-    #m.delH_1 = Param(initialize=parameters["delH_1"], mutable=True)
-    #m.delH_2 = Param(initialize=parameters["delH_2"], mutable=True)
-    #m.delH_3 = Param(initialize=parameters["delH_3"], mutable=True)
+    # m.delH_1 = Param(initialize=parameters["delH_1"], mutable=True)
+    # m.delH_2 = Param(initialize=parameters["delH_2"], mutable=True)
+    # m.delH_3 = Param(initialize=parameters["delH_3"], mutable=True)
 
     m.delH_1 = Var(initialize=parameters["delH_1"])
     m.delH_2 = Var(initialize=parameters["delH_2"])
@@ -1163,9 +1188,7 @@ def RPB_model(mode, parameters, gas_flow_direction=1):
         return m.Q_ghx[z, o]
 
     @m.Integral(
-        m.z,
-        wrt=m.z,
-        doc="Gas to HX heat transfer integrated over z, [kW/m^3 bed]",
+        m.z, wrt=m.z, doc="Gas to HX heat transfer integrated over z, [kW/m^3 bed]"
     )
     def Q_ghx_tot(m, z):
         return m.Q_ghx_z[z]
@@ -1772,14 +1795,7 @@ def homotopy_init_routine(blk):
         blk.R_MT_solid,
     ]
 
-    targets_list = [
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-    ]
+    targets_list = [1, 1, 1, 1, 1, 1]
 
     blk.R_HT_gs = 1e-10
     blk.R_HT_ghx = 1e-10
@@ -1993,41 +2009,58 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current"):
     RPB.delH_3 = Param(initialize=21.25, mutable=True)
 
     initial_parameters = {
-        "C1": 2.562434e-12, 
-        "hgx": 25 * 1e-3, 
-        "delH_1": 98.76, 
-        "delH_2": 77.11, 
-        "delH_3": 21.25
+        "C1": 2.562434e-12,
+        "hgx": 25 * 1e-3,
+        "delH_1": 98.76,
+        "delH_2": 77.11,
+        "delH_3": 21.25,
     }
 
     if configuration == "co-current":
-        RPB.ads = RPB_model(mode="adsorption", parameters=initial_parameters, gas_flow_direction=1)
-        RPB.des = RPB_model(mode="desorption", parameters=initial_parameters, gas_flow_direction=1)
+        RPB.ads = RPB_model(
+            mode="adsorption", parameters=initial_parameters, gas_flow_direction=1
+        )
+        RPB.des = RPB_model(
+            mode="desorption", parameters=initial_parameters, gas_flow_direction=1
+        )
     elif configuration == "counter-current":
-        RPB.ads = RPB_model(mode="adsorption", parameters=initial_parameters, gas_flow_direction=1)
-        RPB.des = RPB_model(mode="desorption",parameters=initial_parameters,  gas_flow_direction=-1)
+        RPB.ads = RPB_model(
+            mode="adsorption", parameters=initial_parameters, gas_flow_direction=1
+        )
+        RPB.des = RPB_model(
+            mode="desorption", parameters=initial_parameters, gas_flow_direction=-1
+        )
 
-    def C1_con1(m): 
-        return m.C1 == m.ads.C1 
+    def C1_con1(m):
+        return m.C1 == m.ads.C1
+
     def C1_con2(m):
-        return m.C1 == m.des.C1 
-    def hgx_con1(m): 
-        return m.hgx == m.ads.hgx 
+        return m.C1 == m.des.C1
+
+    def hgx_con1(m):
+        return m.hgx == m.ads.hgx
+
     def hgx_con2(m):
         return m.hgx == m.des.hgx
-    def h1_con1(m): 
-        return m.delH_1 == m.ads.delH_1 
+
+    def h1_con1(m):
+        return m.delH_1 == m.ads.delH_1
+
     def h1_con2(m):
         return m.delH_1 == m.des.delH_1
-    def h2_con1(m): 
-        return m.delH_2 == m.ads.delH_2 
+
+    def h2_con1(m):
+        return m.delH_2 == m.ads.delH_2
+
     def h2_con2(m):
         return m.delH_2 == m.des.delH_2
-    def h3_con1(m): 
-        return m.delH_3 == m.ads.delH_3 
+
+    def h3_con1(m):
+        return m.delH_3 == m.ads.delH_3
+
     def h3_con2(m):
         return m.delH_3 == m.des.delH_3
-    
+
     RPB.con1 = Constraint(rule=C1_con1)
     RPB.con2 = Constraint(rule=C1_con2)
     RPB.con3 = Constraint(rule=hgx_con1)
@@ -2038,7 +2071,6 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current"):
     RPB.con8 = Constraint(rule=h2_con2)
     RPB.con9 = Constraint(rule=h3_con1)
     RPB.con10 = Constraint(rule=h3_con2)
-
 
     # fix BCs
     # RPB.ads.P_in.fix(1.1)
@@ -2214,11 +2246,7 @@ def init_routine_1(blk, homotopy_points=[1]):
     print("full solve")
 
     solver = SolverFactory("ipopt")
-    solver.options = {
-        "max_iter": 500,
-        "bound_push": 1e-22,
-        "halt_on_ampl_error": "yes",
-    }
+    solver.options = {"max_iter": 500, "bound_push": 1e-22, "halt_on_ampl_error": "yes"}
     solver.solve(blk, tee=True).write()
 
 
@@ -2228,7 +2256,7 @@ def init_routine_2(blk):
     init_obj.config.block_solver_call_options = {"tee": True}
     init_obj.config.block_solver_options = {
         # "halt_on_ampl_error": "yes",
-        "max_iter": 500,
+        "max_iter": 500
     }
 
     blk.ads.R_MT_gas = 1e-10
@@ -2271,18 +2299,7 @@ def init_routine_2(blk):
         blk.des.R_MT_gas,
     ]
 
-    targets_list = [
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-    ]
+    targets_list = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
 
     # homotopy solver
     homotopy(
@@ -2348,10 +2365,7 @@ def report(blk):
         index=names,
     )
 
-    indexed_items = [
-        blk.ads.y_in,
-        blk.ads.y_out,
-    ]
+    indexed_items = [blk.ads.y_in, blk.ads.y_out]
 
     names = []
     values = []
@@ -2391,17 +2405,30 @@ def full_contactor_plotting(blk, save_option=False):
         j * blk.des.theta() + blk.ads.theta() for j in blk.des.o
     ][1:]
 
-    #z_query = [0.05, 0.25, 0.5, 0.75, 0.95]
-    z_query = [0, 0.01, 0.027, 0.071, 0.188, 0.403, 0.597, 0.812, 0.929, 0.973, 0.99, 1.0]
+    # z_query = [0.05, 0.25, 0.5, 0.75, 0.95]
+    z_query = [
+        0,
+        0.01,
+        0.027,
+        0.071,
+        0.188,
+        0.403,
+        0.597,
+        0.812,
+        0.929,
+        0.973,
+        0.99,
+        1.0,
+    ]
     z_nodes = [blk.ads.z.find_nearest_index(z) for z in z_query]
 
-    #theta_query = [0.01, 0.05, 0.3, 0.5, 0.8]
-    theta_query = [0.005, 0.012, 0.028, 0.065, 0.15, 0.299, 0.398, 0.597, 0.796, 0.995 ]
+    # theta_query = [0.01, 0.05, 0.3, 0.5, 0.8]
+    theta_query = [0.005, 0.012, 0.028, 0.065, 0.15, 0.299, 0.398, 0.597, 0.796, 0.995]
     theta_nodes = [blk.ads.o.find_nearest_index(o) for o in theta_query]
 
     # Solids Loading
     qCO2_ads = [[], [], [], [], []]
-    #qCO2_ads = [[], [], [], [], [], [[], [], [], [], []]
+    # qCO2_ads = [[], [], [], [], [], [[], [], [], [], []]
     qCO2_des = [[], [], [], [], []]
     qCO2_total = [[], [], [], [], []]
     k = 0
@@ -2611,9 +2638,7 @@ def full_contactor_plotting(blk, save_option=False):
     # ax.set_ylim([0, 0.05])
     # ax.set_title('Adsorption gas phase CO$_{2}$')
     for i in range(len(theta_nodes)):
-        ax.plot(
-            z, C_N2[i], "-o", label="theta=" + str(round(theta[theta_nodes[i]], 3))
-        )
+        ax.plot(z, C_N2[i], "-o", label="theta=" + str(round(theta[theta_nodes[i]], 3)))
     ax.plot(z, [blk.ads.y_kz["CO2", j]() for j in z], "--", label="Averaged")
     ax.legend()
 
@@ -2635,9 +2660,7 @@ def full_contactor_plotting(blk, save_option=False):
     # ax.set_ylim([0, 0.05])
     # ax.set_title('Adsorption gas phase CO$_{2}$')
     for i in range(len(theta_nodes)):
-        ax.plot(
-            z, C_N2[i], "-o", label="theta=" + str(round(theta[theta_nodes[i]], 3))
-        )
+        ax.plot(z, C_N2[i], "-o", label="theta=" + str(round(theta[theta_nodes[i]], 3)))
     ax.plot(z, [blk.des.y_kz["CO2", j]() for j in z], "--", label="Averaged")
     ax.legend()
 
