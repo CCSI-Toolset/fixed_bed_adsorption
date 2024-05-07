@@ -38,6 +38,7 @@ from pyomo.environ import (
     PositiveReals,
     NonNegativeReals,
     Reals,
+    check_optimal_termination,
 )
 from pyomo.network import Port
 from pyomo.dae import ContinuousSet, DerivativeVar
@@ -47,6 +48,7 @@ from idaes.core.util import to_json, from_json, StoreSpec
 import idaes.core.util.scaling as iscale
 from idaes.core.util.model_diagnostics import DegeneracyHunter
 from idaes.models.unit_models import SkeletonUnitModel
+from idaes.core.util.exceptions import InitializationError
 
 from idaes.core import declare_process_block_class, UnitModelBlockData, useDefault
 from idaes.core.util.config import is_transformation_method
@@ -61,6 +63,7 @@ from pyomo.common.config import ConfigBlock, ConfigValue, In
 
 from idaes.core.util.math import smooth_max
 from idaes.core.util.constants import Constants as const
+from idaes.core.initialization import ModularInitializerBase
 
 from idaes.models_extra.power_generation.properties import FlueGasParameterBlock
 
@@ -227,16 +230,16 @@ class RotaryPackedBedData(UnitModelBlockData):
             )
 
         self._add_section(
-            name="ads", gas_flow_direction="forward", initial_guesses="Adsorption"
+            name="ads", gas_flow_direction="forward", initial_guesses="adsorption"
         )
 
         if self.CONFIG.flow_configuration == "counter-current":
             self._add_section(
-                name="des", gas_flow_direction="reverse", initial_guesses="Desorption"
+                name="des", gas_flow_direction="reverse", initial_guesses="desorption"
             )
         elif self.CONFIG.flow_configuration == "co-current":
             self._add_section(
-                name="des", gas_flow_direction="forward", initial_guesses="Desorption"
+                name="des", gas_flow_direction="forward", initial_guesses="desorption"
             )
 
         self._connect_sections()
@@ -668,7 +671,7 @@ class RotaryPackedBedData(UnitModelBlockData):
             self.flowsheet().time,
             blk.z,
             blk.o,
-            initialize=blk.C_in[0, "CO2"](),
+            initialize=blk.C_in[self.flowsheet().time.first(), "CO2"](),
             domain=NonNegativeReals,
             bounds=(0, 100),
             units=units.mol / units.m**3,
@@ -683,6 +686,7 @@ class RotaryPackedBedData(UnitModelBlockData):
             bounds=(0, 1),
             initialize=0.1,
             domain=NonNegativeReals,
+            units=units.dimensionless,
             doc="gas phase mole fraction",
         )
 
@@ -690,7 +694,7 @@ class RotaryPackedBedData(UnitModelBlockData):
             self.flowsheet().time,
             blk.z,
             blk.o,
-            initialize=blk.C_tot_in[0](),
+            initialize=blk.C_tot_in[self.flowsheet().time.first()](),
             bounds=(0, 100),
             domain=NonNegativeReals,
             doc="Total conc., [mol/m^3] (ideal gas law)",
@@ -728,7 +732,7 @@ class RotaryPackedBedData(UnitModelBlockData):
             self.flowsheet().time,
             blk.z,
             blk.o,
-            initialize=blk.vel0[0](),
+            initialize=blk.vel0[self.flowsheet().time.first()](),
             bounds=(0, 5),
             domain=NonNegativeReals,
             units=units.m / units.s,
@@ -2181,11 +2185,51 @@ class RotaryPackedBedData(UnitModelBlockData):
         def theta_constraint(b):
             return b.ads.theta + b.des.theta == 1
 
+        # metrics ===============================================
+        self.steam_enthalpy = Param(
+            initialize=2257.92,
+            mutable=True,
+            units=units.kJ / units.kg,
+            doc="saturated steam enthalpy at 1 bar[kJ/kg]",
+        )
+
+        @self.Expression(self.flowsheet().time, doc="Steam energy [kW]")
+        def steam_energy(b, t):
+            return b.des.F_in[t] * b.des.y_in[t, "H2O"] * b.MW["H2O"] * b.steam_enthalpy
+
+        @self.Expression(
+            self.flowsheet().time, doc="total thermal energy (steam + HX) [kW]"
+        )
+        def total_thermal_energy(b, t):
+            return b.steam_energy[t] - b.des.Q_ghx_tot_kW[t]
+
+        @self.Expression(self.flowsheet().time, doc="Energy requirement [MJ/kg CO2]")
+        def energy_requirement(b, t):
+            return units.convert(
+                b.total_thermal_energy[t] / b.ads.delta_CO2[t] / b.MW["CO2"],
+                to_units=units.MJ / units.kg,
+            )
+
+        @self.Expression(self.flowsheet().time, doc="Productivity [kg CO2/h/m^3]")
+        def productivity(b, t):
+            return units.convert(
+                b.ads.delta_CO2[t] * b.MW["CO2"] / b.ads.vol_tot,
+                to_units=units.kg / units.h / units.m**3,
+            )
+
+        # add scaling factors
+        iscale.set_scaling_factor(self.theta_constraint, 1e2)
+        for t in self.flowsheet().time:
+            for z in self.ads.z:
+                if 0 < z < 1:
+                    iscale.set_scaling_factor(self.lean_loading_constraint[t, z], 10)
+                    iscale.set_scaling_factor(self.rich_loading_constraint[t, z], 10)
+
     def initialize_build(
         blk,
         outlvl=idaeslog.NOTSET,
         optarg=None,
-        initialization_points: list = [1],
+        initialization_points: list = [1e-5, 0.1, 0.5, 1],
     ):
         """
         Initialization routine for the RPB unit model.
@@ -2199,12 +2243,29 @@ class RotaryPackedBedData(UnitModelBlockData):
         init_obj = BlockTriangularizationInitializer()
         init_obj.config.block_solver_options = optarg
 
+        # create ipopt solver object
+        Solver = SolverFactory("ipopt")
+        Solver.options = optarg
+
+        initialization_points.sort()
+        if min(initialization_points) < 0 or max(initialization_points) > 1:
+            raise InitializationError("Initialization points must be between 0 and 1")
+
+        if initialization_points[-1] != 1:
+            init_log.info_high(
+                "Final initialization point must be = 1. Adding 1 to initialization_points."
+            )
+            initialization_points.append(1)
+
         init_log.info("Beginning Initialization")
 
         init_log.info_high("Checking degrees of freedom")
         if degrees_of_freedom(blk) != 0:
-            init_log.error("Degrees of freedom not zero. Exiting initialization.")
-            return
+            raise InitializationError(
+                "Degrees of freedom is not zero during initialization. Fix/unfix appropriate number of variables to "
+                "result in zero degrees of freedom for "
+                "initialization."
+            )
 
         init_log.info(
             "Initialization using BlockTriangularizationInitializer() Starting"
@@ -2226,10 +2287,22 @@ class RotaryPackedBedData(UnitModelBlockData):
                 init_obj.config.block_solver_call_options = {"tee": slc.tee}
                 init_obj.initialization_routine(blk)
 
+        init_log.info_high("Final solve using IPOPT")
+        with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
+            results = Solver.solve(blk, tee=slc.tee)
+
+        if check_optimal_termination(results):
+            init_log.info_high("Final solve {}.".format(idaeslog.condition(results)))
+        else:
+            init_log.error("{} Initialization Failed.".format(blk.name))
+
         init_log.info("Initialization Routine Finished")
 
     def plotting(self, save_option: bool = False):
         full_contactor_plotting(self, save_option=save_option)
+
+    def report(self):
+        return report(self)
 
 
 # Creating upper level RPB block
@@ -3172,8 +3245,8 @@ def report(blk):
     )
 
     indexed_items = [
-        blk.ads.inlet.y_in,
-        blk.ads.outlet.y_out,
+        blk.ads.gas_inlet.y_in,
+        blk.ads.gas_outlet.y_out,
     ]
 
     names = []
