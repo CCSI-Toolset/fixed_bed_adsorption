@@ -7,9 +7,9 @@ Authors: Jialu Wang, Ryan Hughes, Debangsu Bhattacharrya, Alexander Dowling
 The following instructions assume you have anaconda installed. We suggest create an environment with the following commands to run code: 
 
 ### Step 1: create a new environment 
-- create new environment, called for e.g. `rotary`, with `conda` with `Python` version 3.8
+- create new environment, called for e.g. `rotary`, with `conda`
 
-`conda create --name rotary python=3.8`
+`conda create --name rotary`
 
 `conda activate rotary`
    
