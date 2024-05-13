@@ -401,7 +401,7 @@ def countercurrent_MO(budget_list, mip_option_opt, objective_opt, small_element_
     # create data object to pre-compute Qs
     # read jacobian from the source csv
     # Nt is the number of time points for each measurement
-    jac_info = SensitivityData("./jaco_and_var_10t10/jacobian_10_10", Nt)
+    jac_info = SensitivityData("./Countercurrent_MO_QVs/jacobian_10_10", Nt)
     # the index of CA, CB, CC in the jacobian array, considered as SCM
     static_measurement_index = list(range(num_total_measure))  
     jac_info.get_jac_list(
@@ -418,7 +418,7 @@ def countercurrent_MO(budget_list, mip_option_opt, objective_opt, small_element_
         file.close()
         return data
     # error covariance matrix
-    error_cov = load_pickle("./jaco_and_var_10t10/variance_10_10")
+    error_cov = load_pickle("./Countercurrent_MO_QVs/variance_10_10")
 
     # use MeasurementOptimizer to pre-compute the unit FIMs
     calculator = MeasurementOptimizer(
