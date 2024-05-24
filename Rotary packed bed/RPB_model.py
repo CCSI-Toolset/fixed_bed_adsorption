@@ -39,6 +39,7 @@ from pyomo.environ import (
     NonNegativeReals,
     Reals,
     check_optimal_termination,
+    Reference,
 )
 from pyomo.network import Port
 from pyomo.dae import ContinuousSet, DerivativeVar
@@ -48,10 +49,15 @@ from idaes.core.util import to_json, from_json, StoreSpec
 import idaes.core.util.scaling as iscale
 from idaes.core.util.model_diagnostics import DegeneracyHunter
 from idaes.models.unit_models import SkeletonUnitModel
-from idaes.core.util.exceptions import InitializationError
+from idaes.core.util.exceptions import ConfigurationError, InitializationError
+
+from idaes.core.util.tables import (
+    create_stream_table_dataframe,
+    stream_table_dataframe_to_string,
+)
 
 from idaes.core import declare_process_block_class, UnitModelBlockData, useDefault
-from idaes.core.util.config import is_transformation_method
+from idaes.core.util.config import is_transformation_method, is_physical_parameter_block
 
 import finitevolume
 from idaes.core.solvers.homotopy import homotopy
@@ -86,8 +92,7 @@ class RotaryPackedBedData(UnitModelBlockData):
     CONFIG.declare(
         "z_init_points",
         ConfigValue(
-            default=tuple(np.geomspace(0.01, 0.5, 9)[:-1])
-            + tuple((1 - np.geomspace(0.01, 0.5, 9))[::-1]),
+            default=None,
             domain=tuple,
             description="initial axial nodes",
         ),
@@ -105,7 +110,7 @@ class RotaryPackedBedData(UnitModelBlockData):
     CONFIG.declare(
         "z_nfe",
         ConfigValue(
-            default=20,
+            default=10,
             domain=int,
             description="Number of finite elements for axial direction",
         ),
@@ -123,8 +128,7 @@ class RotaryPackedBedData(UnitModelBlockData):
     CONFIG.declare(
         "o_init_points",
         ConfigValue(
-            default=tuple(np.geomspace(0.005, 0.1, 8))
-            + tuple(np.linspace(0.1, 0.995, 10)[1:]),
+            default=None,
             domain=tuple,
             description="initial o nodes",
         ),
@@ -132,7 +136,7 @@ class RotaryPackedBedData(UnitModelBlockData):
 
     CONFIG.declare(
         "o_nfe",
-        ConfigValue(default=20, domain=int, description="Number of o finite elements"),
+        ConfigValue(default=10, domain=int, description="Number of o finite elements"),
     )
 
     CONFIG.declare(
@@ -157,6 +161,33 @@ class RotaryPackedBedData(UnitModelBlockData):
             default="counter-current",
             domain=In(["counter-current", "co-current"]),
             description="Flow configuration for flue gas and regeneration gas",
+        ),
+    )
+
+    CONFIG.declare(
+        "property_package",
+        ConfigValue(
+            default=useDefault,
+            domain=is_physical_parameter_block,
+            description="Property package to use for RPB model",
+            doc="""Property parameter object used to define property calculations,
+**default** - useDefault.
+**Valid values:** {
+**useDefault** - use default package from parent model or flowsheet,
+**PhysicalParameterObject** - a PhysicalParameterBlock object.}""",
+        ),
+    )
+
+    CONFIG.declare(
+        "property_package_args",
+        ConfigBlock(
+            implicit=True,
+            description="Arguments to use for constructing property packages",
+            doc="""A ConfigBlock with arguments to be passed to a property block(s)
+and used when constructing these,
+**default** - None.
+**Valid values:** {
+see property package for documentation.}""",
         ),
     )
 
@@ -250,7 +281,8 @@ class RotaryPackedBedData(UnitModelBlockData):
         """
 
         self.component_list = Set(
-            initialize=["N2", "CO2", "H2O"], doc="List of components"
+            initialize=self.config.property_package.component_list,
+            doc="List of components",
         )
 
         self.ads_components = Set(
@@ -468,13 +500,13 @@ class RotaryPackedBedData(UnitModelBlockData):
         blk.z = ContinuousSet(
             doc="axial dimension [dimensionless]",
             bounds=(0, 1),
-            initialize=self.CONFIG.z_init_points,
+            initialize=self.config.z_init_points,
         )
 
         blk.o = ContinuousSet(
             doc="adsorption theta nodes [dimensionless]",
             bounds=(0, 1),
-            initialize=self.CONFIG.o_init_points,
+            initialize=self.config.o_init_points,
         )
 
         # add section parameters
@@ -524,24 +556,33 @@ class RotaryPackedBedData(UnitModelBlockData):
             return b.a_sp
 
         # ============================ Gas Inlet =======================================
-        blk.F_in = Var(
+        # build state block
+        blk.inlet_properties = self.config.property_package.build_state_block(
             self.flowsheet().time,
-            initialize=400,
-            domain=PositiveReals,
-            doc="Inlet adsorber gas flow [mol/s]",
-            bounds=(0, None),
-            units=units.mol / units.s,
+            doc="Material properties in gas inlet",
+            defined_state=True,
+            has_phase_equilibrium=False,
+            **self.config.property_package_args,
         )
 
-        blk.P_in = Var(
-            self.flowsheet().time,
-            initialize=1.1,
-            domain=PositiveReals,
-            bounds=(1, 1.5),
-            units=units.bar,
-            doc="Inlet flue gas pressure [bar]",
+        # Add references to all state vars
+        s_vars = blk.inlet_properties[self.flowsheet().time.first()].define_state_vars()
+        for s in s_vars:
+            l_name = s_vars[s].local_name
+            if s_vars[s].is_indexed():
+                slicer = blk.inlet_properties[:].component(l_name)[...]
+            else:
+                slicer = blk.inlet_properties[:].component(l_name)
+
+            r = Reference(slicer)
+            setattr(blk, s + "_inlet", r)
+
+        # Add inlet port
+        self.add_port(
+            name=name + "_gas_inlet", block=blk.inlet_properties, doc="Inlet Port"
         )
 
+        # initialize inlet values
         if initial_guesses == "adsorption":
             Tg_in = 90 + 273
             y_in = {(0, "CO2"): 0.04, (0, "N2"): 0.87, (0, "H2O"): 0.09}
@@ -552,30 +593,69 @@ class RotaryPackedBedData(UnitModelBlockData):
             Tg_in = 90 + 273
             y_in = {(0, "CO2"): 0.04, (0, "N2"): 0.87, (0, "H2O"): 0.09}
 
-        blk.Tg_in = Var(
-            self.flowsheet().time,
-            initialize=Tg_in,
-            domain=PositiveReals,
-            units=units.K,
-            doc="Inlet flue gas temperature [K]",
-        )
+        for t in self.flowsheet().time:
+            blk.flow_mol_inlet[t] = 400
+            blk.pressure_inlet[t] = 1.1 * 101325
+            blk.temperature_inlet[t] = Tg_in
+            for k in self.component_list:
+                blk.mole_frac_comp_inlet[t, k] = y_in[t, k]
 
-        blk.y_in = Var(
-            self.flowsheet().time,
-            self.component_list,
-            initialize=y_in,
-            domain=PositiveReals,
-            doc="inlet mole fraction",
-        )
+        # blk.F_in = Var(
+        #     self.flowsheet().time,
+        #     initialize=400,
+        #     domain=PositiveReals,
+        #     doc="Inlet adsorber gas flow [mol/s]",
+        #     bounds=(0, None),
+        #     units=units.mol / units.s,
+        # )
+
+        @blk.Expression(self.flowsheet().time, doc="Inlet adsorber gas flow [mol/s]")
+        def F_in(b, t):
+            return units.convert(b.flow_mol_inlet[t], to_units=units.mol / units.s)
+
+        # blk.P_in = Var(
+        #     self.flowsheet().time,
+        #     initialize=1.1,
+        #     domain=PositiveReals,
+        #     bounds=(1, 1.5),
+        #     units=units.bar,
+        #     doc="Inlet flue gas pressure [bar]",
+        # )
+
+        @blk.Expression(self.flowsheet().time, doc="Inlet flue gas pressure [bar]")
+        def P_in(b, t):
+            return units.convert(b.pressure_inlet[t], to_units=units.bar)
+
+        # blk.Tg_in = Var(
+        #     self.flowsheet().time,
+        #     initialize=Tg_in,
+        #     domain=PositiveReals,
+        #     units=units.K,
+        #     doc="Inlet flue gas temperature [K]",
+        # )
+
+        @blk.Expression(self.flowsheet().time, doc="Inlet flue gas temperature [K]")
+        def Tg_in(b, t):
+            return units.convert(b.temperature_inlet[t], to_units=units.K)
+
+        # blk.y_in = Var(
+        #     self.flowsheet().time,
+        #     self.component_list,
+        #     initialize=y_in,
+        #     domain=PositiveReals,
+        #     doc="inlet mole fraction",
+        # )
+
+        blk.y_in = Reference(blk.mole_frac_comp_inlet[...])
 
         # add gas_inlet port
-        inlet_dict = {
-            "F_in": blk.F_in,
-            "P_in": blk.P_in,
-            "Tg_in": blk.Tg_in,
-            "y_in": blk.y_in,
-        }
-        blk.add_ports(name="gas_inlet", member_dict=inlet_dict)
+        # inlet_dict = {
+        #     "F_in": blk.F_in,
+        #     "y_in": blk.y_in,
+        #     "Tg_in": blk.Tg_in,
+        #     "P_in": blk.P_in,
+        # }
+        # blk.add_ports(name="gas_inlet", member_dict=inlet_dict)
 
         # Inlet values, mainly used for initialization of state variables within the bed
         @blk.Expression(self.flowsheet().time, doc="inlet total conc. [mol/m^3]")
@@ -597,50 +677,92 @@ class RotaryPackedBedData(UnitModelBlockData):
             return b.F_in[t] / b.C_tot_in[t] / b.A_b
 
         # =========================== Gas Outlet =======================================
-        blk.P_out = Var(
+        # build state block
+        blk.outlet_properties = self.config.property_package.build_state_block(
             self.flowsheet().time,
-            initialize=1.01325,
-            domain=PositiveReals,
-            bounds=(0.99, 1.2),
-            units=units.bar,
-            doc="Outlet adsorber pressure [bar]",
+            doc="Material properties in gas outlet",
+            defined_state=True,
+            has_phase_equilibrium=False,
+            **self.config.property_package_args,
         )
 
-        blk.F_out = Var(
-            self.flowsheet().time,
-            initialize=blk.F_in[0](),
-            domain=PositiveReals,
-            bounds=(0, None),
-            units=units.mol / units.s,
-            doc="Total gas outlet flow [mol/s]",
+        # Add references to all state vars
+        s_vars = blk.outlet_properties[
+            self.flowsheet().time.first()
+        ].define_state_vars()
+        for s in s_vars:
+            l_name = s_vars[s].local_name
+            if s_vars[s].is_indexed():
+                slicer = blk.outlet_properties[:].component(l_name)[...]
+            else:
+                slicer = blk.outlet_properties[:].component(l_name)
+
+            r = Reference(slicer)
+            setattr(blk, s + "_outlet", r)
+
+        # Add port
+        self.add_port(
+            name=name + "_gas_outlet", block=blk.outlet_properties, doc="Outlet Port"
         )
 
-        blk.y_out = Var(
-            self.flowsheet().time,
-            self.component_list,
-            domain=PositiveReals,
-            bounds=(0, 1),
-            initialize=y_in,
-            doc="outlet mole fraction",
-        )
+        # blk.P_out = Var(
+        #     self.flowsheet().time,
+        #     initialize=1.01325,
+        #     domain=PositiveReals,
+        #     bounds=(0.99, 1.2),
+        #     units=units.bar,
+        #     doc="Outlet adsorber pressure [bar]",
+        # )
 
-        blk.Tg_out = Var(
-            self.flowsheet().time,
-            initialize=100 + 273.15,
-            domain=PositiveReals,
-            bounds=(25 + 273.15, 180 + 273.15),
-            units=units.K,
-            doc="outlet gas temperature [K]",
-        )
+        @blk.Expression(self.flowsheet().time, doc="Outlet flue gas pressure [bar]")
+        def P_out(b, t):
+            return units.convert(b.pressure_outlet[t], to_units=units.bar)
+
+        # blk.F_out = Var(
+        #     self.flowsheet().time,
+        #     initialize=blk.F_in[0](),
+        #     domain=PositiveReals,
+        #     bounds=(0, None),
+        #     units=units.mol / units.s,
+        #     doc="Total gas outlet flow [mol/s]",
+        # )
+
+        @blk.Expression(self.flowsheet().time, doc="Outlet adsorber gas flow [mol/s]")
+        def F_out(b, t):
+            return units.convert(b.flow_mol_outlet[t], to_units=units.mol / units.s)
+
+        # blk.y_out = Var(
+        #     self.flowsheet().time,
+        #     self.component_list,
+        #     domain=PositiveReals,
+        #     bounds=(0, 1),
+        #     initialize=y_in,
+        #     doc="outlet mole fraction",
+        # )
+
+        blk.y_out = Reference(blk.mole_frac_comp_outlet[...])
+
+        # blk.Tg_out = Var(
+        #     self.flowsheet().time,
+        #     initialize=100 + 273.15,
+        #     domain=PositiveReals,
+        #     bounds=(25 + 273.15, 180 + 273.15),
+        #     units=units.K,
+        #     doc="outlet gas temperature [K]",
+        # )
+
+        @blk.Expression(self.flowsheet().time, doc="Outlet flue gas temperature [K]")
+        def Tg_out(b, t):
+            return units.convert(b.temperature_outlet[t], to_units=units.K)
 
         # add gas_outlet port
-        outlet_dict = {
-            "F_out": blk.F_out,
-            "P_out": blk.P_out,
-            "Tg_out": blk.Tg_out,
-            "y_out": blk.y_out,
-        }
-        blk.add_ports(name="gas_outlet", member_dict=outlet_dict)
+        # outlet_dict = {
+        #     "F_out": blk.F_out,
+        #     "P_out": blk.P_out,
+        #     "Tg_out": blk.Tg_out,
+        #     "y_out": blk.y_out,
+        # }
+        # blk.add_ports(name="gas_outlet", member_dict=outlet_dict)
 
         # ======================== Heat exchanger ======================================
         blk.hgx = Param(
@@ -743,7 +865,7 @@ class RotaryPackedBedData(UnitModelBlockData):
             self.flowsheet().time,
             blk.z,
             blk.o,
-            initialize=blk.P_in[0].value,
+            initialize=blk.P_in[self.flowsheet().time.first()](),
             bounds=(0.99, 1.2),
             domain=PositiveReals,
             units=units.bar,
@@ -1841,32 +1963,32 @@ class RotaryPackedBedData(UnitModelBlockData):
         # ==============================================================================
 
         # DAE Transformations ==========================================================
-        if self.CONFIG.z_transformation_method == "dae.collocation":
+        if self.config.z_transformation_method == "dae.collocation":
             z_discretizer = TransformationFactory("dae.collocation")
             z_discretizer.apply_to(
                 blk,
                 wrt=blk.z,
-                nfe=self.CONFIG.z_nfe,
-                ncp=self.CONFIG.z_Collpoints,
+                nfe=self.config.z_nfe,
+                ncp=self.config.z_Collpoints,
                 scheme="LAGRANGE-RADAU",
             )
-        elif self.CONFIG.z_transformation_method == "dae.finite_difference":
+        elif self.config.z_transformation_method == "dae.finite_difference":
             z_discretizer = TransformationFactory("dae.finite_difference")
             if blk.CONFIG.gas_flow_direction == "forward":
                 z_discretizer.apply_to(
-                    blk, wrt=blk.z, nfe=self.CONFIG.z_nfe, scheme="BACKWARD"
+                    blk, wrt=blk.z, nfe=self.config.z_nfe, scheme="BACKWARD"
                 )
             elif blk.CONFIG.gas_flow_direction == "reverse":
                 z_discretizer.apply_to(
-                    blk, wrt=blk.z, nfe=self.CONFIG.z_nfe, scheme="FORWARD"
+                    blk, wrt=blk.z, nfe=self.config.z_nfe, scheme="FORWARD"
                 )
-        elif self.CONFIG.z_transformation_method == "Finite Volume":
+        elif self.config.z_transformation_method == "Finite Volume":
             z_discretizer = TransformationFactory("dae.finite_volume")
             if blk.CONFIG.gas_flow_direction == "forward":
                 z_discretizer.apply_to(
                     blk,
                     wrt=blk.z,
-                    nfv=self.CONFIG.z_nfe,
+                    nfv=self.config.z_nfe,
                     scheme="WENO3",
                     flow_direction=1,
                 )
@@ -1874,28 +1996,28 @@ class RotaryPackedBedData(UnitModelBlockData):
                 z_discretizer.apply_to(
                     blk,
                     wrt=blk.z,
-                    nfv=self.CONFIG.z_nfe,
+                    nfv=self.config.z_nfe,
                     scheme="WENO3",
                     flow_direction=-1,
                 )
 
-        if self.CONFIG.o_transformation_method == "dae.collocation":
+        if self.config.o_transformation_method == "dae.collocation":
             o_discretizer = TransformationFactory("dae.collocation")
             o_discretizer.apply_to(
                 blk,
                 wrt=blk.o,
-                nfe=self.CONFIG.o_nfe,
-                ncp=self.CONFIG.o_Collpoints,
+                nfe=self.config.o_nfe,
+                ncp=self.config.o_Collpoints,
             )
-        elif self.CONFIG.o_transformation_method == "dae.finite_difference":
+        elif self.config.o_transformation_method == "dae.finite_difference":
             o_discretizer = TransformationFactory("dae.finite_difference")
-            o_discretizer.apply_to(blk, wrt=blk.o, nfe=self.CONFIG.o_nfe)
-        elif self.CONFIG.o_transformation_method == "Finite Volume":
+            o_discretizer.apply_to(blk, wrt=blk.o, nfe=self.config.o_nfe)
+        elif self.config.o_transformation_method == "Finite Volume":
             o_discretizer = TransformationFactory("dae.finite_volume")
             o_discretizer.apply_to(
                 blk,
                 wrt=blk.o,
-                nfv=self.CONFIG.o_nfe,
+                nfv=self.config.o_nfe,
                 scheme="WENO3",
                 flow_direction=1,
             )
@@ -2301,8 +2423,65 @@ class RotaryPackedBedData(UnitModelBlockData):
     def plotting(self, save_option: bool = False):
         full_contactor_plotting(self, save_option=save_option)
 
-    def report(self):
-        return report(self)
+    def _get_stream_table_contents(self, time_point=0):
+        """
+        Assume unit has standard configuration of 1 inlet and 1 outlet.
+
+        Developers should overload this as appropriate.
+        """
+        try:
+            return create_stream_table_dataframe(
+                {
+                    "Flue Gas Feed": self.ads_gas_inlet,
+                    "Cleaned Flue Gas": self.ads_gas_outlet,
+                    "Steam Sweep": self.des_gas_inlet,
+                    "Regeneration Product": self.des_gas_outlet,
+                },
+                time_point=time_point,
+            )
+        except AttributeError:
+            raise ConfigurationError(
+                f"Unit model {self.name} does not have the standard Port "
+                f"names (inlet and outlet). Please contact the unit model "
+                f"developer to develop a unit specific stream table."
+            )
+
+    def _get_performance_contents(self, time_point=0):
+        var_dict = {}
+        var_dict["Length"] = self.L
+        var_dict["Diameter"] = self.D
+        var_dict["Adsorption Volume Fraction"] = self.ads.theta
+        var_dict["Desorption Volume Fraction"] = self.des.theta
+        var_dict["Rotational Velocity"] = self.w_rpm[time_point]
+        var_dict["Adsorption Tx"] = self.ads.Tx[time_point]
+        var_dict["Adsorption Tx"] = self.des.Tx[time_point]
+        if hasattr(self.ads, "CO2_capture"):
+            var_dict["CO2 Capture"] = self.ads.CO2_capture[time_point]
+
+        exprs_dict = {}
+        if hasattr(self, "energy_requirement"):
+            exprs_dict["Energy Requirement"] = self.energy_requirement[time_point]
+        if hasattr(self, "productivity"):
+            exprs_dict["Productivity"] = self.productivity[time_point]
+
+        params_dict={}
+        # placeholder to add params if needed
+
+        return {"vars": var_dict, "exprs": exprs_dict, "params": params_dict}
+
+    def report_new(self):
+        st = create_stream_table_dataframe(
+            {
+                "Flue Gas Feed": self.ads_gas_inlet,
+                "Cleaned Flue Gas": self.ads_gas_outlet,
+                "Steam Sweep": self.des_gas_inlet,
+                "Regeneration Product": self.des_gas_outlet,
+            },
+        )
+        print(stream_table_dataframe_to_string(st))
+
+    def report_custom(self):
+        return report_old(self)
 
 
 # Creating upper level RPB block
@@ -3192,7 +3371,7 @@ def init_routine_2(blk):
     )
 
 
-def report(blk):
+def report_old(blk):
     items = [
         blk.L,
         blk.D,
