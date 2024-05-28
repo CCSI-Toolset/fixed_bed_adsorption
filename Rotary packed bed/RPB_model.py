@@ -600,81 +600,31 @@ see property package for documentation.}""",
             for k in self.component_list:
                 blk.mole_frac_comp_inlet[t, k] = y_in[t, k]
 
-        # blk.F_in = Var(
-        #     self.flowsheet().time,
-        #     initialize=400,
-        #     domain=PositiveReals,
-        #     doc="Inlet adsorber gas flow [mol/s]",
-        #     bounds=(0, None),
-        #     units=units.mol / units.s,
-        # )
-
         @blk.Expression(self.flowsheet().time, doc="Inlet adsorber gas flow [mol/s]")
         def F_in(b, t):
             return units.convert(b.flow_mol_inlet[t], to_units=units.mol / units.s)
-
-        # blk.P_in = Var(
-        #     self.flowsheet().time,
-        #     initialize=1.1,
-        #     domain=PositiveReals,
-        #     bounds=(1, 1.5),
-        #     units=units.bar,
-        #     doc="Inlet flue gas pressure [bar]",
-        # )
 
         @blk.Expression(self.flowsheet().time, doc="Inlet flue gas pressure [bar]")
         def P_in(b, t):
             return units.convert(b.pressure_inlet[t], to_units=units.bar)
 
-        # blk.Tg_in = Var(
-        #     self.flowsheet().time,
-        #     initialize=Tg_in,
-        #     domain=PositiveReals,
-        #     units=units.K,
-        #     doc="Inlet flue gas temperature [K]",
-        # )
-
         @blk.Expression(self.flowsheet().time, doc="Inlet flue gas temperature [K]")
         def Tg_in(b, t):
             return units.convert(b.temperature_inlet[t], to_units=units.K)
 
-        # blk.y_in = Var(
-        #     self.flowsheet().time,
-        #     self.component_list,
-        #     initialize=y_in,
-        #     domain=PositiveReals,
-        #     doc="inlet mole fraction",
-        # )
-
         blk.y_in = Reference(blk.mole_frac_comp_inlet[...])
 
-        # add gas_inlet port
-        # inlet_dict = {
-        #     "F_in": blk.F_in,
-        #     "y_in": blk.y_in,
-        #     "Tg_in": blk.Tg_in,
-        #     "P_in": blk.P_in,
-        # }
-        # blk.add_ports(name="gas_inlet", member_dict=inlet_dict)
-
         # Inlet values, mainly used for initialization of state variables within the bed
-        @blk.Expression(self.flowsheet().time, doc="inlet total conc. [mol/m^3]")
-        def C_tot_in(b, t):
-            return b.P_in[t] / b.Tg_in[t] / self.Rg
-
-        @blk.Expression(
-            self.flowsheet().time,
-            self.component_list,
-            doc="inlet concentrations [mol/m^3]",
+        blk.dens_mol_inlet = Reference(blk.inlet_properties[:].dens_mol_phase["Vap"])
+        blk.conc_mol_comp_inlet = Reference(
+            blk.inlet_properties[:].conc_mol_phase_comp["Vap", ...]
         )
-        def C_in(b, t, k):
-            return b.y_in[t, k] * b.C_tot_in[t]
 
         @blk.Expression(
             self.flowsheet().time, doc="inlet gas velocity, adsorption [m/s]"
         )
         def vel0(b, t):
-            return b.F_in[t] / b.C_tot_in[t] / b.A_b
+            return b.F_in[t] / b.dens_mol_inlet[t] / b.A_b
 
         # =========================== Gas Outlet =======================================
         # build state block
@@ -700,69 +650,24 @@ see property package for documentation.}""",
             r = Reference(slicer)
             setattr(blk, s + "_outlet", r)
 
-        # Add port
+        # Add port to RPB model
         self.add_port(
             name=name + "_gas_outlet", block=blk.outlet_properties, doc="Outlet Port"
         )
-
-        # blk.P_out = Var(
-        #     self.flowsheet().time,
-        #     initialize=1.01325,
-        #     domain=PositiveReals,
-        #     bounds=(0.99, 1.2),
-        #     units=units.bar,
-        #     doc="Outlet adsorber pressure [bar]",
-        # )
 
         @blk.Expression(self.flowsheet().time, doc="Outlet flue gas pressure [bar]")
         def P_out(b, t):
             return units.convert(b.pressure_outlet[t], to_units=units.bar)
 
-        # blk.F_out = Var(
-        #     self.flowsheet().time,
-        #     initialize=blk.F_in[0](),
-        #     domain=PositiveReals,
-        #     bounds=(0, None),
-        #     units=units.mol / units.s,
-        #     doc="Total gas outlet flow [mol/s]",
-        # )
-
         @blk.Expression(self.flowsheet().time, doc="Outlet adsorber gas flow [mol/s]")
         def F_out(b, t):
             return units.convert(b.flow_mol_outlet[t], to_units=units.mol / units.s)
 
-        # blk.y_out = Var(
-        #     self.flowsheet().time,
-        #     self.component_list,
-        #     domain=PositiveReals,
-        #     bounds=(0, 1),
-        #     initialize=y_in,
-        #     doc="outlet mole fraction",
-        # )
-
         blk.y_out = Reference(blk.mole_frac_comp_outlet[...])
-
-        # blk.Tg_out = Var(
-        #     self.flowsheet().time,
-        #     initialize=100 + 273.15,
-        #     domain=PositiveReals,
-        #     bounds=(25 + 273.15, 180 + 273.15),
-        #     units=units.K,
-        #     doc="outlet gas temperature [K]",
-        # )
 
         @blk.Expression(self.flowsheet().time, doc="Outlet flue gas temperature [K]")
         def Tg_out(b, t):
             return units.convert(b.temperature_outlet[t], to_units=units.K)
-
-        # add gas_outlet port
-        # outlet_dict = {
-        #     "F_out": blk.F_out,
-        #     "P_out": blk.P_out,
-        #     "Tg_out": blk.Tg_out,
-        #     "y_out": blk.y_out,
-        # }
-        # blk.add_ports(name="gas_outlet", member_dict=outlet_dict)
 
         # ======================== Heat exchanger ======================================
         blk.hgx = Param(
@@ -793,7 +698,7 @@ see property package for documentation.}""",
             self.flowsheet().time,
             blk.z,
             blk.o,
-            initialize=blk.C_in[self.flowsheet().time.first(), "CO2"](),
+            initialize=blk.conc_mol_comp_inlet[self.flowsheet().time.first(), "CO2"](),
             domain=NonNegativeReals,
             bounds=(0, 100),
             units=units.mol / units.m**3,
@@ -816,7 +721,7 @@ see property package for documentation.}""",
             self.flowsheet().time,
             blk.z,
             blk.o,
-            initialize=blk.C_tot_in[self.flowsheet().time.first()](),
+            initialize=blk.dens_mol_inlet[self.flowsheet().time.first()](),
             bounds=(0, 100),
             domain=NonNegativeReals,
             doc="Total conc., [mol/m^3] (ideal gas law)",
@@ -2028,8 +1933,12 @@ see property package for documentation.}""",
             for z in blk.z:
                 for o in blk.o:
                     for k in self.component_list:
-                        blk.y[t, z, o, k] = blk.C_in[t, k]() / blk.C_tot[t, z, o]()
-                        blk.Flux_kzo[t, z, o, k] = blk.C_in[t, k]() * blk.vel[t, z, o]()
+                        blk.y[t, z, o, k] = (
+                            blk.conc_mol_comp_inlet[t, k]() / blk.C_tot[t, z, o]()
+                        )
+                        blk.Flux_kzo[t, z, o, k] = (
+                            blk.conc_mol_comp_inlet[t, k]() * blk.vel[t, z, o]()
+                        )
 
             # scaling factors ================================
             iscale.set_scaling_factor(blk.bc_P_in, 10)
@@ -2464,7 +2373,7 @@ see property package for documentation.}""",
         if hasattr(self, "productivity"):
             exprs_dict["Productivity"] = self.productivity[time_point]
 
-        params_dict={}
+        params_dict = {}
         # placeholder to add params if needed
 
         return {"vars": var_dict, "exprs": exprs_dict, "params": params_dict}
