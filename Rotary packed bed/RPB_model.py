@@ -694,50 +694,81 @@ see property package for documentation.}""",
 
         # Variable declaration =========================================================
         # ============================== Gas Phase =====================================
-        blk.Cs_r = Var(
+        blk.gas_properties = self.config.property_package.build_state_block(
             self.flowsheet().time,
             blk.z,
             blk.o,
-            initialize=blk.conc_mol_comp_inlet[self.flowsheet().time.first(), "CO2"](),
-            domain=NonNegativeReals,
-            bounds=(0, 100),
-            units=units.mol / units.m**3,
-            doc="particle surface concentration of CO2 [mol/m^3]",
+            doc="Material properties in gas outlet",
+            defined_state=True,
+            has_phase_equilibrium=False,
+            **self.config.property_package_args,
         )
 
-        blk.y = Var(
-            self.flowsheet().time,
-            blk.z,
-            blk.o,
-            self.component_list,
-            bounds=(0, 1),
-            initialize=0.1,
-            domain=NonNegativeReals,
-            units=units.dimensionless,
-            doc="gas phase mole fraction",
-        )
+        # Add references to all state vars
+        s_vars = blk.gas_properties[
+            self.flowsheet().time.first(), blk.z.first(), blk.o.first()
+        ].define_state_vars()
+        for s in s_vars:
+            l_name = s_vars[s].local_name
+            if s_vars[s].is_indexed():
+                slicer = blk.gas_properties[...].component(l_name)[...]
+            else:
+                slicer = blk.gas_properties[...].component(l_name)
+
+            r = Reference(slicer)
+            setattr(blk, s, r)
+
+        # blk.y = Var(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     self.component_list,
+        #     bounds=(1e-20, 1),
+        #     initialize=0.1,
+        #     domain=NonNegativeReals,
+        #     units=units.dimensionless,
+        #     doc="gas phase mole fraction",
+        # )
+
+        blk.y = Reference(blk.mole_frac_comp[...])
 
         blk.C_tot = Var(
             self.flowsheet().time,
             blk.z,
             blk.o,
             initialize=blk.dens_mol_inlet[self.flowsheet().time.first()](),
-            bounds=(0, 100),
+            bounds=(1e-20, 100),
             domain=NonNegativeReals,
             doc="Total conc., [mol/m^3] (ideal gas law)",
             units=units.mol / units.m**3,
         )
 
-        blk.Tg = Var(
-            self.flowsheet().time,
-            blk.z,
-            blk.o,
-            initialize=blk.Tg_in[0](),
-            domain=PositiveReals,
-            bounds=(25 + 273.15, 180 + 273.15),
-            doc="Gas phase temperature [K]",
-            units=units.K,
+        # blk.C_tot = Reference(blk.gas_properties[...].dens_mol)
+
+        # @blk.Expression(
+        #     self.flowsheet().time, blk.z, blk.o, doc="Total conc., [mol/m^3]"
+        # )
+        # def C_tot(b, t, z, o):
+        #     return units.convert(
+        #         blk.gas_properties[t, z, o].dens_mol, to_units=units.mol / units.m**3
+        #     )
+
+        # blk.Tg = Var(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     initialize=blk.Tg_in[0](),
+        #     domain=PositiveReals,
+        #     bounds=(25 + 273.15, 180 + 273.15),
+        #     doc="Gas phase temperature [K]",
+        #     units=units.K,
+        # )
+
+        @blk.Expression(
+            self.flowsheet().time, blk.z, blk.o, doc="Gas phase temperature [K]"
         )
+        def Tg(b, t, z, o):
+            return units.convert(b.temperature[t, z, o], to_units=units.K)
 
         blk.heat_flux = Var(
             self.flowsheet().time,
@@ -760,7 +791,7 @@ see property package for documentation.}""",
             blk.z,
             blk.o,
             initialize=blk.vel0[self.flowsheet().time.first()](),
-            bounds=(0, 5),
+            bounds=(1e-20, 5),
             domain=NonNegativeReals,
             units=units.m / units.s,
             doc="superficial gas velocity [m/s], adsorption",
@@ -777,10 +808,21 @@ see property package for documentation.}""",
             doc="Gas Pressure [bar]",
         )
 
+        # @blk.Expression(self.flowsheet().time, blk.z, blk.o, doc="Gas Pressure [bar]")
+        # def P(b, t, z, o):
+        #     return units.convert(b.pressure[t, z, o], to_units=units.bar)
+
+        # blk.P = Reference(blk.pressure[...])
+
+        # # get pressure units
+        # P_units = units.get_units(
+        #     blk.gas_properties[self.flowsheet().time.first(), 0, 0].pressure
+        # )
+
         blk.dPdz = DerivativeVar(
             blk.P,
             wrt=blk.z,
-            bounds=(-1, 1),
+            bounds=(None, None),
             units=units.bar,
             doc="axial derivative of pressure [bar/dimensionless bed length]",
         )
@@ -800,6 +842,17 @@ see property package for documentation.}""",
             wrt=blk.z,
             units=units.mol / units.m**2 / units.s,
             doc="axial derivative of component flux [mol/m^2 bed/s/dimensionless bed length]",
+        )
+
+        blk.Cs_r = Var(
+            self.flowsheet().time,
+            blk.z,
+            blk.o,
+            initialize=blk.conc_mol_comp_inlet[self.flowsheet().time.first(), "CO2"](),
+            domain=NonNegativeReals,
+            bounds=(1e-20, 100),
+            units=units.mol / units.m**3,
+            doc="particle surface concentration of CO2 [mol/m^3]",
         )
 
         # ========================= Solids =============================================
@@ -909,6 +962,26 @@ see property package for documentation.}""",
         def C(b, t, z, o, k):
             return b.y[t, z, o, k] * b.C_tot[t, z, o]
 
+        # @blk.Integral(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     self.component_list,
+        #     wrt=blk.o,
+        #     doc="Component flux integrated over theta, function of z [mol/s/m^2]",
+        # )
+        # def Flux_kz(b, t, z, o, k):
+        #     return b.Flux_kzo[t, z, o, k]
+
+        # @blk.Expression(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     self.component_list,
+        #     doc="Component flow integrated over theta, function of z [mol/s]",
+        # )
+        # def Flow_kz(b, t, z, k):
+        #     return b.Flux_kz[t, z, k] * b.A_b
+
         @blk.Integral(
             self.flowsheet().time,
             blk.z,
@@ -919,6 +992,16 @@ see property package for documentation.}""",
         )
         def Flow_kz(b, t, z, o, k):
             return b.Flux_kzo[t, z, o, k] * b.A_b
+
+        # @blk.Expression(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     self.component_list,
+        #     doc="Component flow integrated over theta, function of z [mol/s]",
+        # )
+        # def Flow_kzo(b, t, z, o, k):
+        #     return b.Flux_kzo[t, z, o, k] / b.Flux_kz[t, z, k]
 
         blk.Flow_z = Var(
             self.flowsheet().time,
@@ -939,12 +1022,20 @@ see property package for documentation.}""",
                 b.Flow_kz[t, z, k] for k in self.component_list
             )
 
+        @blk.Expression(
+            self.flowsheet().time,
+            blk.z,
+            doc="Total flow integrated over theta, function of z [mol/s]",
+        )
+        def Flow_z_test(b, t, z):
+            return sum(b.Flow_kz[t, z, k] for k in self.component_list)
+
         blk.y_kz = Var(
             self.flowsheet().time,
             blk.z,
             self.component_list,
             initialize=0.1,
-            bounds=(0, 1),
+            bounds=(1e-20, 1.001),
             doc="Component mole fraction integrated over theta, function of z [-]",
         )
 
@@ -956,6 +1047,15 @@ see property package for documentation.}""",
         )
         def y_kz_eq(b, t, z, k):
             return b.y_kz[t, z, k] * b.Flow_z[t, z] == b.Flow_kz[t, z, k]
+
+        # @blk.Expression(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     self.component_list,
+        #     doc="Component mole fraction integrated over theta, function of z [-]",
+        # )
+        # def y_kz(b, t, z, k):
+        #     return b.Flow_kz[t, z, k] / b.Flow_z[t, z]
 
         def Cp_g_(k, Tg):
             if k == "H2O":
@@ -1932,6 +2032,8 @@ see property package for documentation.}""",
         for t in self.flowsheet().time:
             for z in blk.z:
                 for o in blk.o:
+                    blk.temperature[t, z, o] = blk.temperature_inlet[t]()
+                    # blk.pressure[t, z, o] = blk.pressure_inlet[t]()
                     for k in self.component_list:
                         blk.y[t, z, o, k] = (
                             blk.conc_mol_comp_inlet[t, k]() / blk.C_tot[t, z, o]()
@@ -1980,7 +2082,7 @@ see property package for documentation.}""",
                     blk.y_kz_eq[t, z, "H2O"], 0.1 / value(blk.y_in[t, "H2O"])
                 )
                 iscale.set_scaling_factor(blk.Flow_z[t, z], 0.001)
-                iscale.set_scaling_factor(blk.Flow_z_eq[t, z], 0.001)
+                # iscale.set_scaling_factor(blk.Flow_z_eq[t, z], 0.001)
                 for o in blk.o:
                     iscale.set_scaling_factor(blk.vel[t, z, o], 10)
                     iscale.set_scaling_factor(blk.qCO2[t, z, o], 10)
@@ -2126,7 +2228,7 @@ see property package for documentation.}""",
                 iscale.set_scaling_factor(blk.bc_flow_out[t], 1e-2)
                 for z in blk.z:
                     iscale.set_scaling_factor(blk.Flow_z[t, z], 1e-2)
-                    iscale.set_scaling_factor(blk.Flow_z_eq[t, z], 1e-2)
+                    # iscale.set_scaling_factor(blk.Flow_z_eq[t, z], 1e-2)
                     iscale.set_scaling_factor(
                         blk.y_kz[t, z, "N2"], 0.1 / value(blk.y_in[t, "N2"])
                     )
@@ -2147,6 +2249,15 @@ see property package for documentation.}""",
                             iscale.set_scaling_factor(
                                 blk.Flux_kzo[t, z, o, "H2O"], 1e-1
                             )
+
+        # fixing flow state variable, it is not needed
+        blk.flow_mol.fix(1)
+        # adjusting temperature bounds
+        blk.temperature.setlb(25 + 273.15)
+        blk.temperature.setub(180 + 273.15)
+        # adjusting pressure bounds
+        # blk.pressure.setlb(0.99 * 1e5)
+        # blk.pressure.setub(1.5 * 1e5)
 
         # ==============================================================================
 
