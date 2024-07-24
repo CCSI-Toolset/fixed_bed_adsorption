@@ -9,7 +9,7 @@ The following instructions assume you have anaconda installed. We suggest create
 ### Step 1: create a new environment 
 - create new environment, called for e.g. `rotary`, with `conda`
 
-`conda create --name rotary`
+`conda create --name rotary python==3.8`
 
 `conda activate rotary`
    
@@ -94,7 +94,7 @@ The rerun instructions are for counter-current flow model, which is the model we
 
 ### Step 2: Process the data for MO analysis
 
-- Run `Counterflow_Jacobian_organize.ipynb` to organize the sensitivity data to .csv files that MO code use
+- Run `Counterflow_Jacobian_process.ipynb` to organize the sensitivity data to .csv files that MO code use
 
 ### Step 3: Run MO analysis 
 
