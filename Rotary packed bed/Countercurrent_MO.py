@@ -18,7 +18,7 @@ import time
 # mixed-integer or relaxed
 mip_option = True
 # Objective, ObjectiveLib.A or .D
-objective = ObjectiveLib.A
+objective_opt = ObjectiveLib.A
 # the small element added to the diagonal of FIM
 small_element = 0.0001 
 # file store name 
@@ -278,7 +278,7 @@ def countercurrent_MO(budget_list, mip_option_opt, objective_opt, small_element_
                     new_z_list = []
                     # append z locations
                     for i in range(num_total_loc):
-                        new_z_list.append(head_row+num_total_loc**2_num_total_loc+i)
+                        new_z_list.append(head_row+num_total_loc**2+num_total_loc+i)
                     # append z list 
                     z_list.append(new_z_list)
 
