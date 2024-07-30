@@ -600,6 +600,12 @@ see property package for documentation.}""",
             for k in self.component_list:
                 blk.mole_frac_comp_inlet[t, k] = y_in[t, k]
 
+        # adjusting bounds on inlet state variables
+        blk.pressure_inlet.setlb(0.99 * 1e5)
+        blk.pressure_inlet.setub(1.2 * 1e5)
+        blk.temperature_inlet.setlb(25 + 273.15)
+        blk.temperature_inlet.setub(180 + 273.15)
+
         @blk.Expression(self.flowsheet().time, doc="Inlet adsorber gas flow [mol/s]")
         def F_in(b, t):
             return units.convert(b.flow_mol_inlet[t], to_units=units.mol / units.s)
@@ -615,16 +621,16 @@ see property package for documentation.}""",
         blk.y_in = Reference(blk.mole_frac_comp_inlet[...])
 
         # Inlet values, mainly used for initialization of state variables within the bed
-        blk.dens_mol_inlet = Reference(blk.inlet_properties[:].dens_mol_phase["Vap"])
-        blk.conc_mol_comp_inlet = Reference(
-            blk.inlet_properties[:].conc_mol_phase_comp["Vap", ...]
-        )
+        blk.dens_mol_inlet = Reference(blk.inlet_properties[:].dens_mol)
+        blk.conc_mol_comp_inlet = Reference(blk.inlet_properties[:].conc_mol_comp[...])
 
         @blk.Expression(
             self.flowsheet().time, doc="inlet gas velocity, adsorption [m/s]"
         )
         def vel0(b, t):
-            return b.F_in[t] / b.dens_mol_inlet[t] / b.A_b
+            return units.convert(
+                b.F_in[t] / b.dens_mol_inlet[t] / b.A_b, to_units=units.m / units.s
+            )
 
         # =========================== Gas Outlet =======================================
         # build state block
@@ -654,6 +660,12 @@ see property package for documentation.}""",
         self.add_port(
             name=name + "_gas_outlet", block=blk.outlet_properties, doc="Outlet Port"
         )
+
+        # adjusting bounds on inlet state variables
+        blk.pressure_outlet.setlb(0.99 * 1e5)
+        blk.pressure_outlet.setub(1.2 * 1e5)
+        blk.temperature_outlet.setlb(25 + 273.15)
+        blk.temperature_outlet.setub(180 + 273.15)
 
         @blk.Expression(self.flowsheet().time, doc="Outlet flue gas pressure [bar]")
         def P_out(b, t):
@@ -718,6 +730,12 @@ see property package for documentation.}""",
             r = Reference(slicer)
             setattr(blk, s, r)
 
+        # adjusting bounds
+        blk.pressure.setlb(0.99 * 1e5)
+        blk.pressure.setub(1.2 * 1e5)
+        blk.temperature.setlb(25 + 273.15)
+        blk.temperature.setub(180 + 273.15)
+
         # blk.y = Var(
         #     self.flowsheet().time,
         #     blk.z,
@@ -732,26 +750,39 @@ see property package for documentation.}""",
 
         blk.y = Reference(blk.mole_frac_comp[...])
 
-        blk.C_tot = Var(
-            self.flowsheet().time,
-            blk.z,
-            blk.o,
-            initialize=blk.dens_mol_inlet[self.flowsheet().time.first()](),
-            bounds=(1e-20, 100),
-            domain=NonNegativeReals,
-            doc="Total conc., [mol/m^3] (ideal gas law)",
-            units=units.mol / units.m**3,
-        )
+        # blk.C_tot = Var(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     initialize=blk.dens_mol_inlet[self.flowsheet().time.first()](),
+        #     bounds=(1e-20, 100),
+        #     domain=NonNegativeReals,
+        #     doc="Total conc., [mol/m^3] (ideal gas law)",
+        #     units=units.mol / units.m**3,
+        # )
 
         # blk.C_tot = Reference(blk.gas_properties[...].dens_mol)
 
-        # @blk.Expression(
-        #     self.flowsheet().time, blk.z, blk.o, doc="Total conc., [mol/m^3]"
-        # )
-        # def C_tot(b, t, z, o):
-        #     return units.convert(
-        #         blk.gas_properties[t, z, o].dens_mol, to_units=units.mol / units.m**3
-        #     )
+        @blk.Expression(
+            self.flowsheet().time, blk.z, blk.o, doc="Total conc., [mol/m^3]"
+        )
+        def C_tot(b, t, z, o):
+            return units.convert(
+                blk.gas_properties[t, z, o].dens_mol, to_units=units.mol / units.m**3
+            )
+
+        @blk.Expression(
+            self.flowsheet().time,
+            blk.z,
+            blk.o,
+            self.component_list,
+            doc="gas species concentration [mol/m^3]",
+        )
+        def C(b, t, z, o, k):
+            return units.convert(
+                blk.gas_properties[t, z, o].conc_mol_comp[k],
+                to_units=units.mol / units.m**3,
+            )
 
         # blk.Tg = Var(
         #     self.flowsheet().time,
@@ -797,33 +828,33 @@ see property package for documentation.}""",
             doc="superficial gas velocity [m/s], adsorption",
         )
 
-        blk.P = Var(
-            self.flowsheet().time,
-            blk.z,
-            blk.o,
-            initialize=blk.P_in[self.flowsheet().time.first()](),
-            bounds=(0.99, 1.2),
-            domain=PositiveReals,
-            units=units.bar,
-            doc="Gas Pressure [bar]",
-        )
+        # blk.P = Var(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     initialize=blk.P_in[self.flowsheet().time.first()](),
+        #     bounds=(0.99, 1.2),
+        #     domain=PositiveReals,
+        #     units=units.bar,
+        #     doc="Gas Pressure [bar]",
+        # )
 
-        # @blk.Expression(self.flowsheet().time, blk.z, blk.o, doc="Gas Pressure [bar]")
-        # def P(b, t, z, o):
-        #     return units.convert(b.pressure[t, z, o], to_units=units.bar)
+        @blk.Expression(self.flowsheet().time, blk.z, blk.o, doc="Gas Pressure [bar]")
+        def P(b, t, z, o):
+            return units.convert(b.pressure[t, z, o], to_units=units.bar)
 
         # blk.P = Reference(blk.pressure[...])
 
-        # # get pressure units
-        # P_units = units.get_units(
-        #     blk.gas_properties[self.flowsheet().time.first(), 0, 0].pressure
-        # )
+        # get pressure units
+        pressure_units = blk.pressure[
+            self.flowsheet().time.first(), blk.z.first(), blk.o.first()
+        ].get_units()
 
         blk.dPdz = DerivativeVar(
-            blk.P,
+            blk.pressure,
             wrt=blk.z,
             bounds=(None, None),
-            units=units.bar,
+            units=pressure_units,
             doc="axial derivative of pressure [bar/dimensionless bed length]",
         )
 
@@ -943,24 +974,14 @@ see property package for documentation.}""",
         # ==============================================================================
 
         # Gas phase equations ==========================================================
-        @blk.Constraint(
-            self.flowsheet().time,
-            blk.z,
-            blk.o,
-            doc="total concentration equation (ideal gas law) [mol/m^3]",
-        )
-        def C_tot_eq(b, t, z, o):
-            return b.C_tot[t, z, o] * self.Rg * b.Tg[t, z, o] == b.P[t, z, o]
-
-        @blk.Expression(
-            self.flowsheet().time,
-            blk.z,
-            blk.o,
-            self.component_list,
-            doc="gas species concentration [mol/m^3]",
-        )
-        def C(b, t, z, o, k):
-            return b.y[t, z, o, k] * b.C_tot[t, z, o]
+        # @blk.Constraint(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     doc="total concentration equation (ideal gas law) [mol/m^3]",
+        # )
+        # def C_tot_eq(b, t, z, o):
+        #     return b.C_tot[t, z, o] * self.Rg * b.Tg[t, z, o] == b.P[t, z, o]
 
         # @blk.Integral(
         #     self.flowsheet().time,
@@ -1006,7 +1027,7 @@ see property package for documentation.}""",
         blk.Flow_z = Var(
             self.flowsheet().time,
             blk.z,
-            initialize=blk.F_in[0](),
+            initialize=blk.F_in[blk.flowsheet().time.first()](),
             bounds=(0, None),
             units=units.mol / units.s,
             doc="Total flow integrated over theta, function of z [mol/s]",
@@ -1127,17 +1148,26 @@ see property package for documentation.}""",
             doc="pure component heat capacities, function of T [kJ/mol/K]",
         )
         def Cp_g(b, t, z, o, k):
-            return Cp_g_(k, b.Tg[t, z, o])
+            return units.convert(
+                blk.gas_properties[t, z, o].cp_mol_phase_comp["Vap", k],
+                to_units=units.kJ / units.mol / units.K,
+            )
 
         @blk.Expression(
             self.flowsheet().time, blk.z, blk.o, doc="average molecular weight [kg/mol]"
         )
         def AMW(b, t, z, o):
-            return sum([b.y[t, z, o, k] * self.MW[k] for k in self.component_list])
+            # return sum([b.y[t, z, o, k] * self.MW[k] for k in self.component_list])
+            return units.convert(
+                blk.gas_properties[t, z, o].mw, to_units=units.kg / units.mol
+            )
 
         @blk.Expression(self.flowsheet().time, blk.z, blk.o, doc="gas density [kg/m^3]")
         def rhog(b, t, z, o):
-            return b.AMW[t, z, o] * b.C_tot[t, z, o]
+            # return b.AMW[t, z, o] * b.C_tot[t, z, o]
+            return units.convert(
+                blk.gas_properties[t, z, o].dens_mass, to_units=units.kg / units.m**3
+            )
 
         @blk.Expression(
             self.flowsheet().time,
@@ -1146,8 +1176,12 @@ see property package for documentation.}""",
             doc="gas phase mixture heat capacity [kJ/mol/K]",
         )
         def Cp_g_mix(b, t, z, o):
-            return sum(
-                [b.y[t, z, o, k] * b.Cp_g[t, z, o, k] for k in self.component_list]
+            # return sum(
+            #     [b.y[t, z, o, k] * b.Cp_g[t, z, o, k] for k in self.component_list]
+            # )
+            return units.convert(
+                blk.gas_properties[t, z, o].cp_mol,
+                to_units=units.kJ / units.mol / units.K,
             )
 
         @blk.Expression(
@@ -1157,7 +1191,11 @@ see property package for documentation.}""",
             doc="gas phase mixture heat capacity [kJ/kg/K]",
         )
         def Cp_g_mix_kg(b, t, z, o):
-            return b.Cp_g_mix[t, z, o] / b.AMW[t, z, o]
+            # return b.Cp_g_mix[t, z, o] / b.AMW[t, z, o]
+            return units.convert(
+                blk.gas_properties[t, z, o].cp_mass_phase["Vap"],
+                to_units=units.kJ / units.kg / units.K,
+            )
 
         @blk.Expression(
             self.flowsheet().time,
@@ -1166,12 +1204,16 @@ see property package for documentation.}""",
             doc="gas phase mixture viscosity [Pa*s]",
         )
         def mu_mix(b, t, z, o):
-            return sum(
-                [
-                    b.y[t, z, o, k] * self.mu[k] * self.MW[k] ** 0.5
-                    for k in self.component_list
-                ]
-            ) / sum([b.y[t, z, o, k] * self.MW[k] ** 0.5 for k in self.component_list])
+            # return sum(
+            #     [
+            #         b.y[t, z, o, k] * self.mu[k] * self.MW[k] ** 0.5
+            #         for k in self.component_list
+            #     ]
+            # ) / sum([b.y[t, z, o, k] * self.MW[k] ** 0.5 for k in self.component_list])
+            return units.convert(
+                blk.gas_properties[t, z, o].visc_d_phase["Vap"],
+                to_units=units.Pa * units.s,
+            )
 
         @blk.Expression(
             self.flowsheet().time,
@@ -1180,7 +1222,11 @@ see property package for documentation.}""",
             doc="gas mixture thermal conductivity [kW/m/K]",
         )
         def k_mix(b, t, z, o):
-            return sum([b.y[t, z, o, k] * self.k[k] for k in self.component_list])
+            # return sum([b.y[t, z, o, k] * self.k[k] for k in self.component_list])
+            return units.convert(
+                blk.gas_properties[t, z, o].therm_cond_phase["Vap"],
+                to_units=units.kW / units.m / units.K,
+            )
 
         @blk.Constraint(
             self.flowsheet().time, blk.z, blk.o, doc="heat flux equation [kJ/s/m^2]"
@@ -1701,28 +1747,29 @@ see property package for documentation.}""",
             self.flowsheet().time, blk.z, blk.o, doc="Ergun Equation [bar/m]"
         )
         def pde_Ergun(b, t, z, o):
-            Pa_to_bar = 1e-5 * units.bar / units.Pa
-            RHS = b.R_dP * -(
-                Pa_to_bar
-                * (150 * b.mu_mix[t, z, o] * ((1 - self.eb) ** 2) / (self.eb**3))
+            # Pa_to_bar = 1e-5 * units.bar / units.Pa
+            RHS_ = b.R_dP * -(
+                (150 * b.mu_mix[t, z, o] * ((1 - self.eb) ** 2) / (self.eb**3))
                 / self.dp**2
                 * b.vel[t, z, o]
-                + Pa_to_bar
-                * 1.75
+                + 1.75
                 * (1 - self.eb)
                 / self.eb**3
                 * b.rhog[t, z, o]
                 / self.dp
                 * b.vel[t, z, o] ** 2
             )
+            RHS = units.convert(RHS_, to_units=units.bar / units.meter)
+            LHS_ = b.dPdz[t, z, o] / self.L
+            LHS = units.convert(LHS_, to_units=units.bar / units.meter)
             if blk.CONFIG.gas_flow_direction == "forward":
                 if z > 0:
-                    return b.dPdz[t, z, o] / self.L == RHS
+                    return LHS == RHS
                 else:
                     return Constraint.Skip
             elif blk.CONFIG.gas_flow_direction == "reverse":
                 if z < 1:
-                    return -b.dPdz[t, z, o] / self.L == RHS
+                    return -1 * LHS == RHS
                 else:
                     return Constraint.Skip
 
@@ -2033,7 +2080,7 @@ see property package for documentation.}""",
             for z in blk.z:
                 for o in blk.o:
                     blk.temperature[t, z, o] = blk.temperature_inlet[t]()
-                    # blk.pressure[t, z, o] = blk.pressure_inlet[t]()
+                    blk.pressure[t, z, o] = blk.pressure_inlet[t]()
                     for k in self.component_list:
                         blk.y[t, z, o, k] = (
                             blk.conc_mol_comp_inlet[t, k]() / blk.C_tot[t, z, o]()
@@ -2043,7 +2090,6 @@ see property package for documentation.}""",
                         )
 
             # scaling factors ================================
-            iscale.set_scaling_factor(blk.bc_P_in, 10)
             iscale.set_scaling_factor(blk.bc_y_out[t, "CO2"], 25)
             iscale.set_scaling_factor(
                 blk.bc_y_out[t, "H2O"], 1 / value(blk.y_in[t, "H2O"])
@@ -2051,20 +2097,11 @@ see property package for documentation.}""",
             iscale.set_scaling_factor(
                 blk.bc_y_out[t, "N2"], 1 / value(blk.y_in[t, "N2"])
             )
-            iscale.set_scaling_factor(blk.bc_P_out, 10)
-            iscale.set_scaling_factor(blk.Tg_out[t], 1e-2)
             iscale.set_scaling_factor(
                 blk.y_out[t, "H2O"], 1 / value(blk.y_in[t, "H2O"])
             )
             iscale.set_scaling_factor(blk.y_out[t, "N2"], 1 / value(blk.y_in[t, "N2"]))
             iscale.set_scaling_factor(blk.y_out[t, "CO2"], 25)
-            iscale.set_scaling_factor(blk.Tx[t], 1e-2)
-            iscale.set_scaling_factor(blk.theta, 100)
-            iscale.set_scaling_factor(blk.Hg_out[t], 1e-3)
-            iscale.set_scaling_factor(blk.F_in[t], 0.001)
-            iscale.set_scaling_factor(blk.F_out[t], 0.001)
-            iscale.set_scaling_factor(blk.bc_flow_in[t], 0.001)
-            iscale.set_scaling_factor(blk.bc_flow_out[t], 0.001)
 
             for z in blk.z:
                 iscale.set_scaling_factor(
@@ -2082,13 +2119,13 @@ see property package for documentation.}""",
                     blk.y_kz_eq[t, z, "H2O"], 0.1 / value(blk.y_in[t, "H2O"])
                 )
                 iscale.set_scaling_factor(blk.Flow_z[t, z], 0.001)
-                # iscale.set_scaling_factor(blk.Flow_z_eq[t, z], 0.001)
+                iscale.set_scaling_factor(blk.Flow_z_eq[t, z], 0.001)
                 for o in blk.o:
                     iscale.set_scaling_factor(blk.vel[t, z, o], 10)
                     iscale.set_scaling_factor(blk.qCO2[t, z, o], 10)
                     iscale.set_scaling_factor(blk.Tg[t, z, o], 1e-2)
                     iscale.set_scaling_factor(blk.Ts[t, z, o], 1e0)
-                    iscale.set_scaling_factor(blk.P[t, z, o], 10)
+                    iscale.set_scaling_factor(blk.pressure[t, z, o], 1e-4)
                     iscale.set_scaling_factor(blk.flux_eq[t, z, o, "CO2"], 25)
                     iscale.set_scaling_factor(blk.Flux_kzo[t, z, o, "CO2"], 25)
                     iscale.set_scaling_factor(
@@ -2144,8 +2181,8 @@ see property package for documentation.}""",
                             iscale.set_scaling_factor(
                                 blk.dFluxdz_disc_eq[t, z, o, "N2"], 0.1
                             )
-                            iscale.set_scaling_factor(blk.dPdz[t, z, o], 10)
-                            iscale.set_scaling_factor(blk.dPdz_disc_eq[t, z, o], 10)
+                            iscale.set_scaling_factor(blk.dPdz[t, z, o], 1e-4)
+                            iscale.set_scaling_factor(blk.dPdz_disc_eq[t, z, o], 1e-4)
                             iscale.set_scaling_factor(blk.pde_Ergun[t, z, o], 100)
                             iscale.set_scaling_factor(
                                 blk.dheat_fluxdz_disc_eq[t, z, o], 1e-2
@@ -2182,8 +2219,8 @@ see property package for documentation.}""",
                             iscale.set_scaling_factor(
                                 blk.dFluxdz_disc_eq[t, z, o, "N2"], 0.1
                             )
-                            iscale.set_scaling_factor(blk.dPdz[t, z, o], 10)
-                            iscale.set_scaling_factor(blk.dPdz_disc_eq[t, z, o], 10)
+                            iscale.set_scaling_factor(blk.dPdz[t, z, o], 1e-4)
+                            iscale.set_scaling_factor(blk.dPdz_disc_eq[t, z, o], 1e-4)
                             iscale.set_scaling_factor(blk.pde_Ergun[t, z, o], 100)
                             iscale.set_scaling_factor(
                                 blk.dheat_fluxdz_disc_eq[t, z, o], 1e-2
@@ -2209,6 +2246,8 @@ see property package for documentation.}""",
 
             for o in blk.o:
                 iscale.set_scaling_factor(blk.bc_gastemp_in[t, o], 1e-2)
+                iscale.set_scaling_factor(blk.bc_P_in[t, o], 10)
+                iscale.set_scaling_factor(blk.bc_P_out[t, o], 10)
                 iscale.set_scaling_factor(
                     blk.bc_y_in[t, o, "CO2"], 1 / value(y_in[t, "CO2"])
                 )
@@ -2252,13 +2291,6 @@ see property package for documentation.}""",
 
         # fixing flow state variable, it is not needed
         blk.flow_mol.fix(1)
-        # adjusting temperature bounds
-        blk.temperature.setlb(25 + 273.15)
-        blk.temperature.setub(180 + 273.15)
-        # adjusting pressure bounds
-        # blk.pressure.setlb(0.99 * 1e5)
-        # blk.pressure.setub(1.5 * 1e5)
-
         # ==============================================================================
 
     def _connect_sections(self):
@@ -2401,6 +2433,100 @@ see property package for documentation.}""",
 
         init_log.info("Beginning Initialization")
 
+        # getting port states =========================
+        ads_gas_inlet_flags = {}
+        for n, v in blk.ads_gas_inlet.vars.items():
+            for i in v:
+                ads_gas_inlet_flags[n, i] = v[i].fixed
+
+        ads_gas_outlet_flags = {}
+        for n, v in blk.ads_gas_outlet.vars.items():
+            for i in v:
+                ads_gas_outlet_flags[n, i] = v[i].fixed
+
+        des_gas_inlet_flags = {}
+        for n, v in blk.des_gas_inlet.vars.items():
+            for i in v:
+                des_gas_inlet_flags[n, i] = v[i].fixed
+
+        des_gas_outlet_flags = {}
+        for n, v in blk.des_gas_outlet.vars.items():
+            for i in v:
+                des_gas_outlet_flags[n, i] = v[i].fixed
+        # =============================================
+
+        # setting port states for initialization.
+        # 1) Fixing deltaP and calculating flow rates. 2) Fixing inlet temperatures and mole fractions.
+        init_log.info_high("Fixing Port States")
+        # ads flue gas in
+        blk.ads_gas_inlet.temperature.fix()
+        blk.ads_gas_inlet.pressure.fix()
+        blk.ads_gas_inlet.mole_frac_comp.fix()
+        blk.ads_gas_inlet.flow_mol.unfix()
+        # ads gas exit
+        blk.ads_gas_outlet.temperature.unfix()
+        blk.ads_gas_outlet.pressure.fix()
+        blk.ads_gas_outlet.mole_frac_comp.unfix()
+        blk.ads_gas_outlet.flow_mol.unfix()
+        # des flue gas in
+        blk.des_gas_inlet.temperature.fix()
+        blk.des_gas_inlet.pressure.fix()
+        blk.des_gas_inlet.mole_frac_comp.fix()
+        blk.des_gas_inlet.flow_mol.unfix()
+        # des gas exit
+        blk.des_gas_outlet.temperature.unfix()
+        blk.des_gas_outlet.pressure.fix()
+        blk.des_gas_outlet.mole_frac_comp.unfix()
+        blk.des_gas_outlet.flow_mol.unfix()
+        # =================================
+
+        # initializing variables based on inlet values ============================================
+        init_log.info_high("Initializing Variables")
+        # state variables
+        for k in blk.component_list:
+            blk.ads.mole_frac_comp[:, :, :, k] = blk.ads_gas_inlet.mole_frac_comp[
+                blk.flowsheet().time.first(), k
+            ]()
+            blk.ads_gas_outlet.mole_frac_comp[:, k] = blk.ads_gas_inlet.mole_frac_comp[
+                blk.flowsheet().time.first(), k
+            ]()
+            blk.des.mole_frac_comp[:, :, :, k] = blk.des_gas_inlet.mole_frac_comp[
+                blk.flowsheet().time.first(), k
+            ]()
+            blk.des_gas_outlet.mole_frac_comp[:, k] = blk.des_gas_inlet.mole_frac_comp[
+                blk.flowsheet().time.first(), k
+            ]()
+
+        blk.ads.pressure[:, :, :] = blk.ads_gas_inlet.pressure[
+            blk.flowsheet().time.first()
+        ]()
+        blk.des.pressure[:, :, :] = blk.des_gas_inlet.pressure[
+            blk.flowsheet().time.first()
+        ]()
+
+        blk.ads.temperature[:, :, :] = blk.ads_gas_inlet.temperature[
+            blk.flowsheet().time.first()
+        ]()
+        blk.ads_gas_outlet.temperature[:] = blk.ads_gas_inlet.temperature[
+            blk.flowsheet().time.first()
+        ]()
+        blk.des.temperature[:, :, :] = blk.des_gas_inlet.temperature[
+            blk.flowsheet().time.first()
+        ]()
+        blk.des_gas_outlet.temperature[:] = blk.des_gas_inlet.temperature[
+            blk.flowsheet().time.first()
+        ]()
+
+        # model variables
+        for k in blk.component_list:
+            blk.ads.y_kz[:, :, k] = blk.ads_gas_inlet.mole_frac_comp[
+                blk.flowsheet().time.first(), k
+            ]()
+            blk.des.y_kz[:, :, k] = blk.des_gas_inlet.mole_frac_comp[
+                blk.flowsheet().time.first(), k
+            ]()
+        # =========================================================================================
+
         init_log.info_high("Checking degrees of freedom")
         if degrees_of_freedom(blk) != 0:
             raise InitializationError(
@@ -2408,6 +2534,17 @@ see property package for documentation.}""",
                 "result in zero degrees of freedom for "
                 "initialization."
             )
+
+        # initializing property packages ======================
+        init_log.info_high("Initializing property packages")
+        blk.ads.inlet_properties.initialize(outlvl=outlvl)
+        blk.ads.outlet_properties.initialize(outlvl=outlvl)
+        blk.ads.gas_properties.initialize(outlvl=outlvl)
+
+        blk.des.inlet_properties.initialize(outlvl=outlvl)
+        blk.des.outlet_properties.initialize(outlvl=outlvl)
+        blk.des.gas_properties.initialize(outlvl=outlvl)
+        # ====================================================
 
         init_log.info(
             "Initialization using BlockTriangularizationInitializer() Starting"
@@ -2437,6 +2574,37 @@ see property package for documentation.}""",
             init_log.info_high("Final solve {}.".format(idaeslog.condition(results)))
         else:
             init_log.error("{} Initialization Failed.".format(blk.name))
+
+        # revert port states =========================
+        init_log.info_high("Reverting Port States")
+        for n, v in blk.ads_gas_inlet.vars.items():
+            for i in v:
+                if ads_gas_inlet_flags[n, i]:
+                    v[i].fix()
+                else:
+                    v[i].unfix()
+
+        for n, v in blk.ads_gas_outlet.vars.items():
+            for i in v:
+                if ads_gas_outlet_flags[n, i]:
+                    v[i].fix()
+                else:
+                    v[i].unfix()
+
+        for n, v in blk.des_gas_inlet.vars.items():
+            for i in v:
+                if des_gas_inlet_flags[n, i]:
+                    v[i].fix()
+                else:
+                    v[i].unfix()
+
+        for n, v in blk.des_gas_outlet.vars.items():
+            for i in v:
+                if des_gas_outlet_flags[n, i]:
+                    v[i].fix()
+                else:
+                    v[i].unfix()
+        # =============================================
 
         init_log.info("Initialization Routine Finished")
 
