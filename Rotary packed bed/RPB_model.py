@@ -2089,7 +2089,10 @@ see property package for documentation.}""",
                             blk.conc_mol_comp_inlet[t, k]() * blk.vel[t, z, o]()
                         )
 
-            # scaling factors ================================
+        # scaling factors ================================
+        iscale.set_scaling_factor(blk.theta, 1e5)
+
+        for t in self.flowsheet().time:
             iscale.set_scaling_factor(blk.bc_y_out[t, "CO2"], 25)
             iscale.set_scaling_factor(
                 blk.bc_y_out[t, "H2O"], 1 / value(blk.y_in[t, "H2O"])
@@ -2248,9 +2251,9 @@ see property package for documentation.}""",
                 iscale.set_scaling_factor(blk.bc_gastemp_in[t, o], 1e-2)
                 iscale.set_scaling_factor(blk.bc_P_in[t, o], 10)
                 iscale.set_scaling_factor(blk.bc_P_out[t, o], 10)
-                iscale.set_scaling_factor(
-                    blk.bc_y_in[t, o, "CO2"], 1 / value(y_in[t, "CO2"])
-                )
+                # iscale.set_scaling_factor(
+                #     blk.bc_y_in[t, o, "CO2"], 1 / value(y_in[t, "CO2"])
+                # )
                 iscale.set_scaling_factor(
                     blk.bc_y_in[t, o, "H2O"], 1 / value(y_in[t, "H2O"])
                 )
