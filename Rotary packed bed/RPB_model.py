@@ -601,10 +601,10 @@ see property package for documentation.}""",
                 blk.mole_frac_comp_inlet[t, k] = y_in[t, k]
 
         # adjusting bounds on inlet state variables
-        blk.pressure_inlet.setlb(0.99 * 1e5)
-        blk.pressure_inlet.setub(1.2 * 1e5)
-        blk.temperature_inlet.setlb(25 + 273.15)
-        blk.temperature_inlet.setub(180 + 273.15)
+        # blk.pressure_inlet.setlb(0.99 * 1e5)
+        # blk.pressure_inlet.setub(1.2 * 1e5)
+        # blk.temperature_inlet.setlb(25 + 273.15)
+        # blk.temperature_inlet.setub(180 + 273.15)
 
         @blk.Expression(self.flowsheet().time, doc="Inlet adsorber gas flow [mol/s]")
         def F_in(b, t):
@@ -662,10 +662,10 @@ see property package for documentation.}""",
         )
 
         # adjusting bounds on inlet state variables
-        blk.pressure_outlet.setlb(0.99 * 1e5)
-        blk.pressure_outlet.setub(1.2 * 1e5)
-        blk.temperature_outlet.setlb(25 + 273.15)
-        blk.temperature_outlet.setub(180 + 273.15)
+        # blk.pressure_outlet.setlb(0.99 * 1e5)
+        # blk.pressure_outlet.setub(1.2 * 1e5)
+        # blk.temperature_outlet.setlb(25 + 273.15)
+        # blk.temperature_outlet.setub(180 + 273.15)
 
         @blk.Expression(self.flowsheet().time, doc="Outlet flue gas pressure [bar]")
         def P_out(b, t):
@@ -731,10 +731,10 @@ see property package for documentation.}""",
             setattr(blk, s, r)
 
         # adjusting bounds
-        blk.pressure.setlb(0.99 * 1e5)
-        blk.pressure.setub(1.2 * 1e5)
-        blk.temperature.setlb(25 + 273.15)
-        blk.temperature.setub(180 + 273.15)
+        # blk.pressure.setlb(0.99 * 1e5)
+        # blk.pressure.setub(1.2 * 1e5)
+        # blk.temperature.setlb(25 + 273.15)
+        # blk.temperature.setub(180 + 273.15)
 
         # blk.y = Var(
         #     self.flowsheet().time,
@@ -1584,6 +1584,26 @@ see property package for documentation.}""",
             else:
                 return b.Q_gs[t, z, o] == 0
 
+        # @blk.Expression(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     doc="Gas-to-solid heat transfer rate [kW/m^3 bed or kJ/s/m^3 bed]",
+        # )
+        # def Q_gs(b, t, z, o):
+        #     flux_lim = FL(z)
+
+        #     if 0 < z < 1 and 0 < o < 1:  # no heat transfer at boundaries
+        #         return (
+        #             flux_lim
+        #             * b.R_HT_gs
+        #             * b.h_gs[t, z, o]
+        #             * self.a_s
+        #             * (b.Ts[t, z, o] - b.Tg[t, z, o])
+        #         )
+        #     else:
+        #         return 0 * units.kW / units.m**3
+
         blk.Q_ghx = Var(
             self.flowsheet().time,
             blk.z,
@@ -1610,6 +1630,22 @@ see property package for documentation.}""",
             else:
                 return b.Q_ghx[t, z, o] == 0
 
+        # @blk.Expression(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     doc="Gas-to-HX heat transfer rate [kW/m^3 bed or kJ/s/m^3 bed]",
+        # )
+        # def Q_ghx(b, t, z, o):
+        #     flux_lim = FL(z)
+
+        #     if 0 < z < 1 and 0 < o < 1:  # no heat transfer at boundaries
+        #         return (
+        #             flux_lim * b.R_HT_ghx * b.hgx * b.a_ht * (b.Tg[t, z, o] - b.Tx[t])
+        #         )
+        #     else:
+        #         return 0 * units.kW / units.m**3
+
         blk.Q_delH = Var(
             self.flowsheet().time,
             blk.z,
@@ -1630,6 +1666,15 @@ see property package for documentation.}""",
             return (
                 b.Q_delH[t, z, o] == b.R_delH * b.delH_CO2[t, z, o] * b.Rs_CO2[t, z, o]
             )
+
+        # @blk.Expression(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     doc="adsorption/desorption heat rate [kJ/s/m^3 bed]",
+        # )
+        # def Q_delH(b, t, z, o):
+        #     return b.R_delH * b.delH_CO2[t, z, o] * b.Rs_CO2[t, z, o]
 
         # =====================================================================================
 
@@ -2126,8 +2171,8 @@ see property package for documentation.}""",
                 for o in blk.o:
                     iscale.set_scaling_factor(blk.vel[t, z, o], 10)
                     iscale.set_scaling_factor(blk.qCO2[t, z, o], 10)
-                    iscale.set_scaling_factor(blk.Tg[t, z, o], 1e-2)
-                    iscale.set_scaling_factor(blk.Ts[t, z, o], 1e0)
+                    iscale.set_scaling_factor(blk.temperature[t, z, o], 1e-2)
+                    iscale.set_scaling_factor(blk.Ts[t, z, o], 1e4)
                     iscale.set_scaling_factor(blk.pressure[t, z, o], 1e-4)
                     iscale.set_scaling_factor(blk.flux_eq[t, z, o, "CO2"], 25)
                     iscale.set_scaling_factor(blk.Flux_kzo[t, z, o, "CO2"], 25)
@@ -2159,18 +2204,19 @@ see property package for documentation.}""",
                         iscale.set_scaling_factor(blk.dqCO2do[t, z, o], 1e-2)
                         iscale.set_scaling_factor(blk.dqCO2do_disc_eq[t, z, o], 1e-2)
                         iscale.set_scaling_factor(blk.pde_gasEB[t, z, o], 1e0)
-                        iscale.set_scaling_factor(blk.pde_solidEB[t, z, o], 1e2)
+                        iscale.set_scaling_factor(blk.pde_solidEB[t, z, o], 1e-4)
                         iscale.set_scaling_factor(blk.pde_solidMB[t, z, o], 1e-3)
                         iscale.set_scaling_factor(blk.dheat_fluxdz[t, z, o], 1e-2)
                         iscale.set_scaling_factor(blk.dTsdo[t, z, o], 1e-1)
                         iscale.set_scaling_factor(blk.dTsdo_disc_eq[t, z, o], 1e-1)
                         iscale.set_scaling_factor(blk.pde_gasMB[t, z, o, "CO2"], 100)
-                        iscale.set_scaling_factor(blk.Q_gs_eq[t, z, o], 1)
+                        # iscale.set_scaling_factor(blk.Q_gs_eq[t, z, o], 1)
                         iscale.set_scaling_factor(blk.Q_gs[t, z, o], 0.01)
                         iscale.set_scaling_factor(blk.Q_delH[t, z, o], 0.01)
-                        iscale.set_scaling_factor(blk.Q_delH_eq[t, z, o], 0.01)
+                        # iscale.set_scaling_factor(blk.Q_delH_eq[t, z, o], 0.01)
                         iscale.set_scaling_factor(blk.Rs_CO2[t, z, o], 0.5)
                         iscale.set_scaling_factor(blk.Rs_CO2_eq[t, z, o], 1)
+                        iscale.set_scaling_factor(blk.temperature[t, z, o], 1e2)
 
                     if blk.CONFIG.gas_flow_direction == "forward":
                         if z > 0:
@@ -2645,7 +2691,7 @@ see property package for documentation.}""",
         var_dict["Desorption Volume Fraction"] = self.des.theta
         var_dict["Rotational Velocity"] = self.w_rpm[time_point]
         var_dict["Adsorption Tx"] = self.ads.Tx[time_point]
-        var_dict["Adsorption Tx"] = self.des.Tx[time_point]
+        var_dict["Desorption Tx"] = self.des.Tx[time_point]
         if hasattr(self.ads, "CO2_capture"):
             var_dict["CO2 Capture"] = self.ads.CO2_capture[time_point]
 
